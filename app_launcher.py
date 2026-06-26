@@ -1021,6 +1021,7 @@ class AppLauncher(TkinterDnD.Tk):
                 messagebox.showerror("运行失败", f"「{title}」失败\n\n{err_msg}")
             finally:
                 self._running = False
+                self.btn_stop.configure(text="■ 终止")
                 self._set_buttons_state(True)
 
         self._running = True
@@ -1030,14 +1031,14 @@ class AppLauncher(TkinterDnD.Tk):
     def _stop_run(self):
         """用户点击终止按钮"""
         self._stop_requested = True
-        self.log("[用户] 请求终止运行...")
+        self.btn_stop.configure(state="disabled", text="终止中...")
+        self.log("[用户] 请求终止，当前步骤完成后将停止...")
 
     def _set_buttons_state(self, enabled):
-        try:
-            self.btn_all.state(["!disabled"] if enabled else ["disabled"])
-            self.btn_stop.state(["disabled"] if enabled else ["!disabled"])
-        except Exception:
-            pass
+        s = "normal" if enabled else "disabled"
+        self.btn_all.configure(state=s)
+        s_stop = "disabled" if enabled else "normal"
+        self.btn_stop.configure(state=s_stop)
 
     def _apply_env(self):
         # 强制 UTF-8 编码，防止 Windows GBK 环境打印 emoji 崩溃
