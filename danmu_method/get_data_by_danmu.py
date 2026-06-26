@@ -438,7 +438,23 @@ class DanmakuAnalyzer:
         if len(active_members) == 1:
             broadcast_desc = f"{active_members[0]}单播"
             broadcast_type = broadcast_desc
-        elif len(active_members) > 1:
+        elif len(active_members) == 2:
+            # 双播
+            if active_set == {"心宜", "思诺"}:
+                broadcast_desc = "小心思双播"
+                broadcast_type = "小心思双播（心宜 × 思诺）"
+            elif active_set.issubset(aso_set):
+                broadcast_desc = "A-SOUL双播"
+                names = " × ".join(sorted(active_members))
+                broadcast_type = f"A-SOUL双播（{names}）"
+            elif active_set.issubset(ss_set):
+                broadcast_desc = "闪耀舞台双播"
+                broadcast_type = "闪耀舞台双播"
+            else:
+                broadcast_desc = "A-SOUL双播"
+                broadcast_type = "双播"
+        elif len(active_members) > 2:
+            # 团播
             broadcast_desc = "A-SOUL团播"
             if has_aso and has_ss:
                 broadcast_type = "枝江团播（A-SOUL + 闪耀舞台）"
