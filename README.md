@@ -114,6 +114,3 @@ ASoulAutoClip/
 - 请遵守 B站社区规范及二创公约
 - 禁止用于商业盈利目的
 
-## 作者
-
-**救一人为侠** · Bilibili: [@667041249](https://space.bilibili.com/667041249)
