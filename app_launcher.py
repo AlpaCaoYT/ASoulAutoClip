@@ -89,7 +89,7 @@ class AppLauncher(TkinterDnD.Tk):
         self.input_dir_var = tk.StringVar(value=saved.get("input_dir", str(DEFAULT_INPUT_DIR)))
         self.output_dir_var = tk.StringVar(value=saved.get("output_dir", str(DEFAULT_OUTPUT_DIR)))
         self.api_key_var = tk.StringVar(value=os.environ.get("SILICONFLOW_API_KEY", saved.get("api_key", "")))
-        self.api_base_var = tk.StringVar(value=os.environ.get("SILICONFLOW_BASE_URL", saved.get("api_base", "https://api.deepseek.com/chat/completions")))
+        self.api_base_var = tk.StringVar(value=os.environ.get("SILICONFLOW_BASE_URL", saved.get("api_base", "https://api.deepseek.com/v1/chat/completions")))
         self.api_model_var = tk.StringVar(value=os.environ.get("SILICONFLOW_MODEL", saved.get("api_model", "deepseek-v4-pro")))
         self.bvid_var = tk.StringVar(value=os.environ.get("BILIBILI_VIDEO_INPUT", saved.get("bvid", "")))
         self.sessdata_var = tk.StringVar(value=os.environ.get("BILIBILI_SESSDATA", saved.get("sessdata", "")))
@@ -798,7 +798,7 @@ class AppLauncher(TkinterDnD.Tk):
         if not self._advanced_showing:
             self._toggle_advanced()
         self.log("[提示] 在高级配置里填写 AI 接口信息")
-        self.log("  接口地址：https://api.deepseek.com/chat/completions")
+        self.log("  接口地址：https://api.deepseek.com/v1/chat/completions")
         self.log("  模型名称：deepseek-v4-pro 或 deepseek-v4-flash")
         self.log("  API Key：在 platform.deepseek.com 注册后获取")
 

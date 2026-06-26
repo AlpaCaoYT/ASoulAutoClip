@@ -25,7 +25,7 @@ class FileConfig:
 class ApiConfig:
     # LLM API 设置
     API_KEY = os.environ.get("SILICONFLOW_API_KEY", "").strip()
-    BASE_URL = os.environ.get("SILICONFLOW_BASE_URL", "https://api.deepseek.com/chat/completions")
+    BASE_URL = os.environ.get("SILICONFLOW_BASE_URL", "https://api.deepseek.com/v1/chat/completions")
     MODEL_NAME = os.environ.get("SILICONFLOW_MODEL", "deepseek-v4-pro")
     TIMEOUT = 60    # 请求超时时间
 

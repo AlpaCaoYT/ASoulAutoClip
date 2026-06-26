@@ -2,7 +2,7 @@
   "input_dir": "./workspace/video_input",
   "output_dir": "./workspace/clip_output",
   "api_key": "",
-  "api_base": "https://api.deepseek.com/chat/completions",
+  "api_base": "https://api.deepseek.com/v1/chat/completions",
   "api_model": "deepseek-v4-pro",
   "bvid": "",
   "sessdata": "",

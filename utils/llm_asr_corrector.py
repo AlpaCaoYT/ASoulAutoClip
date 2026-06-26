@@ -13,7 +13,7 @@ import requests
 def _load_api_config():
     return {
         "api_key": os.environ.get("SILICONFLOW_API_KEY", "").strip(),
-        "base_url": os.environ.get("SILICONFLOW_BASE_URL", "https://api.deepseek.com/chat/completions"),
+        "base_url": os.environ.get("SILICONFLOW_BASE_URL", "https://api.deepseek.com/v1/chat/completions"),
         "model": os.environ.get("SILICONFLOW_MODEL", "deepseek-v4-pro"),
     }
 
