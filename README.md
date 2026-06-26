@@ -35,6 +35,7 @@
 - **5位成员专属提示词**：嘉然/贝拉/乃琳/心宜/思诺，严格对齐成员知识库
 - **6种 ASS 字幕配色**：成员代表色精准匹配（粉/紫/蓝/金/银/深蓝）
 - **必剪免费 ASR**：B站公开接口，无字幕视频自动生成，无需 Key
+- **Whisper API 回退**：必剪失败时自动切换 OpenAI Whisper API（需配置 STT 接口），可靠性更高
 - **LLM 智能字幕纠错**：大模型 + 成员知识库修正 ASR 识别错误（需 API Key），比词典纠错更智能
 
 ## 依赖
@@ -48,9 +49,9 @@ pip install -r requirements.txt
 pip install yutto pydub tkinterdnd2
 ```
 
-### AI 接口（可选，弹幕分析需要）
-- [DeepSeek API](https://platform.deepseek.com) — 在 GUI「高级配置」中填入 Key
-- 不填也能用视频模式（必剪 ASR 免费）
+### AI 接口（可选）
+- **DeepSeek API** — 弹幕分析 + LLM 字幕纠错。不填也能用视频模式
+- **STT 接口**（可选）— 必剪 ASR 的可靠回退。支持 OpenAI Whisper API 及兼容服务
 
 ## 项目结构
 
@@ -77,7 +78,9 @@ ASoulAutoClip/
 │   └── prompt_思诺单播.txt
 ├── utils/
 │   ├── bcut_asr.py              # 必剪免费语音识别
-│   ├── ASRCorrector.py          # 字幕纠错
+│   ├── whisper_asr.py           # Whisper API 语音识别（回退方案）
+│   ├── llm_asr_corrector.py     # LLM 智能字幕纠错
+│   ├── ASRCorrector.py          # 字典字幕纠错
 │   ├── asr_dict.txt             # 纠错词典（~600条）
 │   └── ...
 ├── assets/font/                 # 字体文件

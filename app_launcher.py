@@ -111,6 +111,11 @@ class AppLauncher(TkinterDnD.Tk):
         self._cover_style_var = tk.StringVar(value=saved.get("cover_style", "style1"))
         self._cover_count_var = tk.StringVar(value=str(saved.get("cover_count", 5)))
 
+        # STT（语音识别）接口配置
+        self._stt_key_var = tk.StringVar(value=saved.get("stt_api_key", ""))
+        self._stt_url_var = tk.StringVar(value=saved.get("stt_base_url", "https://api.openai.com/v1"))
+        self._stt_model_var = tk.StringVar(value=saved.get("stt_model", "whisper-1"))
+
         self._build_ui()
         self._check_environment()
 
@@ -321,11 +326,21 @@ class AppLauncher(TkinterDnD.Tk):
 
         self.advanced_frame = ttk.Frame(root)
 
-        api_box = ttk.LabelFrame(self.advanced_frame, text="AI 接口配置（弹幕分析用）", padding=10)
+        api_box = ttk.LabelFrame(self.advanced_frame, text="AI 接口配置（弹幕分析 + LLM纠错用）", padding=10)
         api_box.pack(fill=tk.X, pady=(0, 8))
         self._row(api_box, "API Key", self.api_key_var, 0, show="*")
         self._row(api_box, "接口地址", self.api_base_var, 1)
         self._row(api_box, "模型名称", self.api_model_var, 2)
+
+        # STT 接口配置
+        stt_box = ttk.LabelFrame(self.advanced_frame, text="STT 接口配置（语音识别，必剪失败时回退）", padding=10)
+        stt_box.pack(fill=tk.X, pady=(0, 8))
+        self._row(stt_box, "STT API Key", self._stt_key_var, 0, show="*")
+        self._row(stt_box, "STT 接口地址", self._stt_url_var, 1)
+        self._row(stt_box, "STT 模型", self._stt_model_var, 2)
+        stt_hint = ttk.Label(stt_box, text="支持 OpenAI Whisper API 及兼容服务。例: https://api.openai.com/v1，模型 whisper-1",
+                             foreground="#888", font=("Microsoft YaHei UI", 8))
+        stt_hint.grid(row=3, column=0, sticky="ew", pady=(2, 0))
 
         bvid_box = ttk.LabelFrame(self.advanced_frame, text="B站下载配置（下载弹幕用）", padding=10)
         bvid_box.pack(fill=tk.X, pady=(0, 8))
@@ -446,6 +461,9 @@ class AppLauncher(TkinterDnD.Tk):
                 "member_status": {name: var.get() for name, var in self._member_vars.items()},
                 "cover_style": self._cover_style_var.get().strip(),
                 "cover_count": int(self._cover_count_var.get().strip() or "5"),
+                "stt_api_key": self._stt_key_var.get().strip(),
+                "stt_base_url": self._stt_url_var.get().strip(),
+                "stt_model": self._stt_model_var.get().strip(),
             }
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -932,6 +950,10 @@ class AppLauncher(TkinterDnD.Tk):
         # 封面配置
         os.environ["AUTOCLIP_COVER_STYLE"] = self._cover_style_var.get().strip()
         os.environ["AUTOCLIP_COVER_COUNT"] = self._cover_count_var.get().strip()
+        # STT 语音识别接口
+        os.environ["STT_API_KEY"] = self._stt_key_var.get().strip()
+        os.environ["STT_BASE_URL"] = self._stt_url_var.get().strip()
+        os.environ["STT_MODEL"] = self._stt_model_var.get().strip()
 
     def _update_mode_hint(self):
         bv_mode = self._mode.get() == "bv"
@@ -1205,7 +1227,7 @@ class AppLauncher(TkinterDnD.Tk):
         return len(ass_files) > 0
 
     def _generate_srt_for_video(self):
-        """用必剪免费 ASR 为视频生成 SRT 字幕（无需 API Key，无需翻墙）"""
+        """用 ASR 为视频生成 SRT 字幕：优先必剪免费，失败回退 Whisper API"""
         target = self.input_dir_var.get().strip()
         video_exts = {".mp4", ".flv", ".mkv", ".mov", ".ts"}
         videos = [f for f in Path(target).rglob("*") if f.suffix.lower() in video_exts]
@@ -1216,9 +1238,10 @@ class AppLauncher(TkinterDnD.Tk):
         video = videos[0]
         size_mb = video.stat().st_size / (1024 * 1024)
         self.log(f"  找到 {len(videos)} 个视频，选用: {video.name} ({size_mb:.0f} MB)")
-        self.log("  使用必剪 (Bcut) 免费 ASR 识别，预计需要 1-3 分钟...")
-        from utils.bcut_asr import video_to_srt
-        srt_path = video_to_srt(str(video), target)
+
+        # 自动 ASR 链路：必剪 → Whisper API → 报错
+        from utils.whisper_asr import auto_generate_srt
+        srt_path = auto_generate_srt(str(video), target)
         self.log(f"  字幕已生成: {Path(srt_path).name}")
 
     def _step1_func(self):
