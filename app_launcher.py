@@ -150,7 +150,7 @@ class AppLauncher(TkinterDnD.Tk):
         self._stt_model_var = tk.StringVar(value=saved.get("stt_model", "whisper-1"))
 
         # 本地 Whisper 模型选择
-        self._whisper_model_var = tk.StringVar(value=saved.get("whisper_model", "tiny"))
+        self._whisper_model_var = tk.StringVar(value=saved.get("whisper_model", "small"))
 
         self._build_ui()
         self._check_environment()
@@ -1784,6 +1784,21 @@ class AppLauncher(TkinterDnD.Tk):
         output_dir = str(video.parent)
         from utils.local_asr import auto_generate_srt_robust
         srt_path = auto_generate_srt_robust(str(video), output_dir)
+
+        # 繁→简转换
+        try:
+            import zhconv
+            with open(srt_path, "r", encoding="utf-8-sig") as f:
+                srt_text = f.read()
+            simplified = zhconv.convert(srt_text, "zh-cn")
+            with open(srt_path, "w", encoding="utf-8-sig") as f:
+                f.write(simplified)
+            self.log(f"  繁→简转换完成")
+        except ImportError:
+            pass  # zhconv 未安装则跳过
+        except Exception as e:
+            self.log(f"  繁→简转换跳过: {e}")
+
         self.log(f"  字幕已生成: {Path(srt_path).name}")
 
         # 快速LLM校核（有Key时自动跑，1次API调用不慢）

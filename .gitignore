@@ -21,9 +21,8 @@ env/
 .idea/
 
 # 工作区素材和输出
-workspace/video_input/
-workspace/clip_output/
-workspace/logs/
+workspace/
+切片输出/
 素材/
 __no_danmaku__/
 models/
