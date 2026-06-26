@@ -455,89 +455,80 @@ class AppLauncher(TkinterDnD.Tk):
         else:
             self.input_label.config(text="输入目录: 不存在", foreground="#e44")
 
-        # 快速诊断（静默运行，只更新按钮颜色）
-        self._run_quick_diag()
+        # 快速诊断（后台线程，不阻塞 UI）
+        threading.Thread(target=self._run_quick_diag, daemon=True).start()
 
     def _run_quick_diag(self):
-        """后台静默运行诊断，更新按钮状态"""
+        """后台静默运行诊断（仅本地检查，不联网避免卡顿）"""
         try:
-            from utils.diagnostics import run_diagnostics, diagnostics_summary
-            results = run_diagnostics(self.input_dir_var.get().strip())
-            _, _, errs, passed = diagnostics_summary(results)
-            if passed:
-                self.diag_btn.configure(text="✓ 状态正常")
+            import shutil
+            ok = True
+            if not shutil.which("ffmpeg"):
+                ok = False
+            input_path = Path(self.input_dir_var.get())
+            if not input_path.exists():
+                ok = False
+            if ok:
+                self.diag_btn.configure(text="✓ 本地正常")
                 self.after(5000, lambda: self.diag_btn.configure(text="故障检测"))
             else:
-                self.diag_btn.configure(text=f"✗ {errs}个问题")
+                self.diag_btn.configure(text="✗ 点击检测")
         except Exception:
             pass
 
     def _show_diagnostics(self):
-        """打开故障检测窗口"""
-        self.log("正在运行故障检测...")
-        try:
-            from utils.diagnostics import run_diagnostics, print_diagnostics, diagnostics_summary
-        except ImportError:
-            messagebox.showerror("错误", "诊断模块未找到 (utils/diagnostics.py)")
-            return
-
-        results = run_diagnostics(self.input_dir_var.get().strip())
-
+        """打开故障检测窗口（后台运行，不阻塞 UI）"""
         win = tk.Toplevel(self)
         win.title("故障检测")
         win.geometry("750x550")
         win.minsize(600, 400)
         win.transient(self)
 
-        icons = {"ok": "✓", "warn": "⚠", "error": "✗", "info": "ℹ"}
-        colors = {"ok": "#4a4", "warn": "#c90", "error": "#e44", "info": "#888"}
+        loading = ttk.Label(win, text="正在检测中，请稍候...",
+                            font=("Microsoft YaHei UI", 11))
+        loading.pack(expand=True)
+        self.log("正在后台运行故障检测...")
 
-        ok, warn, errs, passed = diagnostics_summary(results)
-        summary_text = f"检测完毕: {ok} 通过, {warn} 警告, {errs} 错误 — {'✓ 系统就绪' if passed else '✗ 存在问题'}"
-        summary_label = ttk.Label(win, text=summary_text,
-                                   font=("Microsoft YaHei UI", 10, "bold"),
-                                   foreground="#4a4" if passed else "#e44")
-        summary_label.pack(pady=(12, 8), padx=12)
+        def _populate(results):
+            loading.destroy()
+            from utils.diagnostics import diagnostics_summary
+            icons = {"ok": "✓", "warn": "⚠", "error": "✗", "info": "ℹ"}
+            colors = {"ok": "#4a4", "warn": "#c90", "error": "#e44", "info": "#888"}
+            ok, warn, errs, passed = diagnostics_summary(results)
+            ttk.Label(win, text=f"检测完毕: {ok} 通过, {warn} 警告, {errs} 错误 — {'✓ 就绪' if passed else '✗ 存在问题'}",
+                      font=("Microsoft YaHei UI", 10, "bold"),
+                      foreground="#4a4" if passed else "#e44").pack(pady=(12, 8), padx=12)
 
-        canvas = tk.Canvas(win, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(win, orient=tk.VERTICAL, command=canvas.yview)
-        scroll_frame = ttk.Frame(canvas)
+            canvas = tk.Canvas(win, highlightthickness=0)
+            sb = ttk.Scrollbar(win, orient=tk.VERTICAL, command=canvas.yview)
+            sf = ttk.Frame(canvas)
+            sf.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+            canvas.create_window((0, 0), window=sf, anchor="nw")
+            canvas.configure(yscrollcommand=sb.set)
 
-        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+            for r in results:
+                row = ttk.Frame(sf); row.pack(fill=tk.X, padx=12, pady=3)
+                tk.Label(row, text=icons.get(r["level"], "?"), fg=colors.get(r["level"], "#999"),
+                         font=("Consolas", 11), width=2, anchor="w").pack(side=tk.LEFT)
+                ttk.Label(row, text=r["name"], font=("Microsoft YaHei UI", 9, "bold"), width=20).pack(side=tk.LEFT)
+                ttk.Label(row, text=r["message"], font=("Microsoft YaHei UI", 9), foreground="#aaa").pack(side=tk.LEFT, padx=(8, 0))
+                if r.get("fix"):
+                    fr = ttk.Frame(sf); fr.pack(fill=tk.X, padx=28, pady=(0, 3))
+                    ttk.Label(fr, text=f"→ {r['fix']}", foreground="#888", font=("Microsoft YaHei UI", 8)).pack(anchor="w")
 
-        for r in results:
-            row = ttk.Frame(scroll_frame)
-            row.pack(fill=tk.X, padx=12, pady=3)
-            icon_color = colors.get(r["level"], "#999")
-            icon = icons.get(r["level"], "?")
+            canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(12, 0), pady=(0, 8))
+            sb.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 12), pady=(0, 8))
+            ttk.Button(win, text="关闭", command=win.destroy).pack(pady=(0, 12))
+            for r in results:
+                self.log(f"{icons.get(r['level'], '?')} {r['name']}: {r['message']}")
+                if r.get("fix"): self.log(f"   → {r['fix']}")
 
-            # 图标 + 名称
-            left = ttk.Frame(row)
-            left.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            tk.Label(left, text=icon, fg=icon_color, font=("Consolas", 11), width=2, anchor="w").pack(side=tk.LEFT)
-            ttk.Label(left, text=r["name"], font=("Microsoft YaHei UI", 9, "bold"), width=20, anchor="w").pack(side=tk.LEFT)
-            ttk.Label(left, text=r["message"], font=("Microsoft YaHei UI", 9), foreground="#aaa").pack(side=tk.LEFT, padx=(8, 0))
+        def _run():
+            from utils.diagnostics import run_diagnostics
+            results = run_diagnostics(self.input_dir_var.get().strip())
+            self.after(0, lambda: _populate(results))
 
-            # 修复建议
-            if r.get("fix"):
-                fix_row = ttk.Frame(scroll_frame)
-                fix_row.pack(fill=tk.X, padx=28, pady=(0, 3))
-                ttk.Label(fix_row, text=f"→ {r['fix']}", foreground="#888",
-                          font=("Microsoft YaHei UI", 8)).pack(anchor="w")
-
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(12, 0), pady=(0, 8))
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 12), pady=(0, 8))
-
-        ttk.Button(win, text="关闭", command=win.destroy).pack(pady=(0, 12))
-
-        # 同时输出到日志
-        for r in results:
-            icon = icons.get(r["level"], "?")
-            self.log(f"{icon} {r['name']}: {r['message']}")
-            if r.get("fix"):
-                self.log(f"   → {r['fix']}")
+        threading.Thread(target=_run, daemon=True).start()
 
     def _save_config(self):
         try:
