@@ -1446,28 +1446,52 @@ class AppLauncher(TkinterDnD.Tk):
             target = self.input_dir_var.get().strip()
             sessdata = self.sessdata_var.get().strip()
 
-            # [1/4] yt-dlp 下载视频（速度快，稳定）
-            self.log("  [1/4] yt-dlp 下载视频...")
+            # [1/4] 下载视频（bilix → yt-dlp → yutto 三级回退）
+            self.log("  [1/4] 下载视频...")
+            downloaded = False
+
+            # 尝试 bilix（B站专用异步下载器，最快）
             try:
-                import yt_dlp
-                ydl_opts = {
-                    "outtmpl": os.path.join(target, "%(title)s.%(ext)s"),
-                    "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
-                    "merge_output_format": "mp4",
-                    "quiet": True,
-                }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([f"https://www.bilibili.com/video/{bvid}"])
-                self.log("  ✓ 视频下载完成")
+                import asyncio
+                from bilix import DownloaderBilibili
+                async def _bilix_dl():
+                    async with DownloaderBilibili(video_concurrency=5) as d:
+                        await d.get_video(f"https://www.bilibili.com/video/{bvid}", path=target)
+                asyncio.run(_bilix_dl())
+                if list(Path(target).rglob("*.mp4")) or list(Path(target).rglob("*.flv")):
+                    self.log("  ✓ bilix 下载完成")
+                    downloaded = True
+            except ImportError:
+                self.log("  bilix 未安装 (pip install bilix)，使用 yt-dlp...")
             except Exception as e:
-                self.log(f"  yt-dlp 失败: {e}，尝试 yutto...")
-                cmd = [
+                self.log(f"  bilix 失败: {e}")
+
+            # 回退 yt-dlp
+            if not downloaded:
+                try:
+                    import yt_dlp
+                    ydl_opts = {
+                        "outtmpl": os.path.join(target, "%(title)s.%(ext)s"),
+                        "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
+                        "merge_output_format": "mp4",
+                        "quiet": True,
+                    }
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        ydl.download([f"https://www.bilibili.com/video/{bvid}"])
+                    self.log("  ✓ yt-dlp 下载完成")
+                    downloaded = True
+                except Exception as e:
+                    self.log(f"  yt-dlp 失败: {e}")
+
+            # 最后回退 yutto
+            if not downloaded:
+                self.log("  回退 yutto...")
+                subprocess.run([
                     sys.executable, "-m", "yutto", "download",
                     f"https://www.bilibili.com/video/{bvid}",
                     "-d", target, "--danmaku-format", "ass",
-                ]
-                subprocess.run(cmd, capture_output=True, text=True,
-                              encoding="utf-8", errors="replace", cwd=target)
+                ], capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=target)
+                downloaded = True
 
             # [2/4] B站官方API下载字幕（比yutto可靠）
             self.log("  [2/4] B站官方API下载字幕...")
