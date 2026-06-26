@@ -56,10 +56,21 @@ def transcribe_local(video_path, output_dir=None, model_size="small"):
 
     try:
         # 加载模型（自动下载到缓存目录）
-        compute = "int8"
-        # 模型存项目本地，避免下载到C盘
+        # 自动检测 GPU/CUDA
+        try:
+            import ctranslate2
+            if ctranslate2.get_cuda_device_count() > 0:
+                device = "cuda"
+                compute = "float16"
+            else:
+                device = "cpu"
+                compute = "int8"
+        except Exception:
+            device = "cpu"
+            compute = "int8"
+
         model_dir = str(Path(__file__).resolve().parent.parent / "models")
-        model = WhisperModel(model_size, device="cpu", compute_type=compute,
+        model = WhisperModel(model_size, device=device, compute_type=compute,
                              download_root=model_dir)
         print(f"  模型已加载，开始识别...")
 
@@ -139,7 +150,7 @@ def auto_generate_srt_robust(video_path, output_dir=None):
     # [3] 本地 faster-whisper (通用方案)
     try:
         print("  [3/4] 回退到本地 faster-whisper...")
-        return transcribe_local(video_path, output_dir, model_size="small")
+        return transcribe_local(video_path, output_dir, model_size="large-v3")
     except Exception as e:
         print(f"  faster-whisper 失败: {e}")
 
