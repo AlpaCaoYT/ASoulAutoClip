@@ -1442,49 +1442,66 @@ class AppLauncher(TkinterDnD.Tk):
                 self.log("  ⚠ 未填写 BV 号，跳过。")
                 self._mark_step(1, "done")
                 return
-            self.log("  使用 yutto 下载视频+字幕+弹幕...")
-            cmd = [
-                sys.executable, "-m", "yutto", "download",
-                f"https://www.bilibili.com/video/{bvid}",
-                "-d", self.input_dir_var.get().strip(),
-                "--danmaku-format", "ass",
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True,
-                                    encoding="utf-8", errors="replace",
-                                    cwd=self.input_dir_var.get().strip())
-            if result.returncode != 0:
-                err = (result.stderr or result.stdout or "")[-400:]
-                self.log(f"  yutto 下载出错: {err}")
-                self.log("  尝试备用方案...")
-            else:
-                self.log("yutto 下载完成。")
 
-            # 检测并补充字幕
+            target = self.input_dir_var.get().strip()
+            sessdata = self.sessdata_var.get().strip()
+
+            # [1/4] yt-dlp 下载视频（速度快，稳定）
+            self.log("  [1/4] yt-dlp 下载视频...")
+            try:
+                import yt_dlp
+                ydl_opts = {
+                    "outtmpl": os.path.join(target, "%(title)s.%(ext)s"),
+                    "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
+                    "merge_output_format": "mp4",
+                    "quiet": True,
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([f"https://www.bilibili.com/video/{bvid}"])
+                self.log("  ✓ 视频下载完成")
+            except Exception as e:
+                self.log(f"  yt-dlp 失败: {e}，尝试 yutto...")
+                cmd = [
+                    sys.executable, "-m", "yutto", "download",
+                    f"https://www.bilibili.com/video/{bvid}",
+                    "-d", target, "--danmaku-format", "ass",
+                ]
+                subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", cwd=target)
+
+            # [2/4] B站官方API下载字幕（比yutto可靠）
+            self.log("  [2/4] B站官方API下载字幕...")
+            if not self._check_srt_exists():
+                try:
+                    from utils.get_all import BilibiliDownloader
+                    dl = BilibiliDownloader(bvid, sessdata, target, auto_correct=False)
+                    dl.run(download_video=False, download_subtitle=True,
+                           download_danmaku=False, download_all_parts=True)
+                except Exception as e:
+                    self.log(f"  B站API字幕下载失败: {e}")
+
             if self._check_srt_exists():
-                self.log("  ✓ 字幕已就绪")
+                self.log("  ✓ B站官方字幕已就绪")
             else:
-                self.log("  B站无官方字幕，启动三级 ASR 链路...")
+                self.log("  B站无官方字幕（大部分A-SOUL录播无），启动 ASR 生成...")
                 self._generate_srt_for_video()
 
-            # 检测并补充弹幕
+            # [3/4] 弹幕下载
+            self.log("  [3/4] 弹幕下载...")
+            if not self._has_ass_files():
+                # yutto已尝试，再用protobuf备用
+                try:
+                    from utils.get_danmu import DanmakuDownloader
+                    DanmakuDownloader(bvid, sessdata, target).run()
+                except Exception:
+                    pass
             if self._has_ass_files():
                 self.log("  ✓ 弹幕已就绪")
             else:
-                self.log("  尝试备用弹幕下载...")
-                try:
-                    from utils.get_danmu import DanmakuDownloader
-                    DanmakuDownloader(
-                        bvid,
-                        self.sessdata_var.get().strip(),
-                        self.input_dir_var.get().strip(),
-                    ).run()
-                    if self._has_ass_files():
-                        self.log("  ✓ 备用弹幕下载成功")
-                    else:
-                        self.log("  ⚠ 弹幕下载失败，不影响后续（无弹幕将自动跳过分析）")
-                except Exception as e:
-                    self.log(f"  弹幕备用下载也失败: {e}")
+                self.log("  ⚠ 弹幕下载失败（无弹幕将自动跳过分析）")
 
+            # [4/4] 智能整理
+            self.log("  [4/4] 整理文件...")
             self._organize_files()
             self._mark_step(1, "done")
 
