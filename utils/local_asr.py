@@ -4,8 +4,18 @@
 
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+# 注册 pip 安装的 CUDA DLL（nvidia-cublas-cu12 等）
+_NV_DIR = Path(sys.executable).parent / "Lib" / "site-packages" / "nvidia"
+if _NV_DIR.exists():
+    for _d in _NV_DIR.rglob("bin"):
+        try:
+            os.add_dll_directory(str(_d))
+        except Exception:
+            pass
 
 
 def _extract_audio(video_path, sample_rate=16000):
