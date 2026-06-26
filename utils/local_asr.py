@@ -56,22 +56,31 @@ def transcribe_local(video_path, output_dir=None, model_size="small"):
 
     try:
         # 加载模型（自动下载到缓存目录）
-        # 自动检测 GPU/CUDA
+        # 自动检测 GPU/CUDA，失败回退 CPU
+        device = "cpu"
+        compute = "int8"
         try:
             import ctranslate2
             if ctranslate2.get_cuda_device_count() > 0:
                 device = "cuda"
                 compute = "float16"
-            else:
-                device = "cpu"
-                compute = "int8"
+                print(f"  检测到 GPU，尝试 CUDA 加速...")
         except Exception:
-            device = "cpu"
-            compute = "int8"
+            pass
 
         model_dir = str(Path(__file__).resolve().parent.parent / "models")
-        model = WhisperModel(model_size, device=device, compute_type=compute,
-                             download_root=model_dir)
+        try:
+            model = WhisperModel(model_size, device=device, compute_type=compute,
+                                 download_root=model_dir)
+        except Exception as e:
+            if device == "cuda":
+                print(f"  GPU 不可用 ({e})，回退 CPU...")
+                device = "cpu"
+                compute = "int8"
+                model = WhisperModel(model_size, device=device, compute_type=compute,
+                                     download_root=model_dir)
+            else:
+                raise
         print(f"  模型已加载，开始识别...")
 
         # 识别（beam_size=1 速度最快，vad_filter 跳过静音）
