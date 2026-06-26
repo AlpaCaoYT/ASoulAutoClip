@@ -30,16 +30,12 @@ def _extract_audio(video_path, sample_rate=16000):
 
 def transcribe_local(video_path, output_dir=None, model_size="small"):
     """使用本地 faster-whisper 模型转录音视频。
-
-    Args:
-        video_path: 视频/音频文件路径
-        output_dir: SRT 输出目录
-        model_size: 模型大小 (tiny/base/small/medium/large-v3)
-                   tiny=最快最不准, large=最慢最准, small=推荐平衡
-
-    Returns:
-        SRT 文件路径
+    自动使用 HuggingFace 国内镜像下载模型。
     """
+    # 设置 HF 国内镜像（解决 SSL/网络问题）
+    if "HF_ENDPOINT" not in os.environ:
+        os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
     video_path = str(video_path)
     video = Path(video_path)
     if not video.exists():
@@ -47,14 +43,12 @@ def transcribe_local(video_path, output_dir=None, model_size="small"):
 
     size_mb = video.stat().st_size / (1024 * 1024)
     print(f"  视频: {video.name} ({size_mb:.1f} MB)")
-    print(f"  使用本地 Whisper ({model_size}) 识别，首次使用需下载模型 (~500MB-3GB)...")
+    print(f"  使用本地 Whisper ({model_size}) 识别，首次需下载模型 (~500MB-3GB)...")
 
     try:
         from faster_whisper import WhisperModel
     except ImportError:
-        raise RuntimeError(
-            "faster-whisper 未安装。运行: pip install faster-whisper"
-        )
+        raise RuntimeError("faster-whisper 未安装。运行: pip install faster-whisper")
 
     # 提取音频
     print("  提取音频...")

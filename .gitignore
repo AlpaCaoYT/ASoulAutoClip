@@ -26,6 +26,7 @@ workspace/clip_output/
 workspace/logs/
 素材/
 __no_danmaku__/
+models/
 
 # 系统文件
 Thumbs.db
