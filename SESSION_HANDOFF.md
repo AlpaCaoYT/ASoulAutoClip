@@ -6,7 +6,7 @@
 
 ## 项目是什么
 
-ASoulAutoClip — A-SOUL/闪耀舞台 直播自动切片工具，带 tkinter GUI。
+ZhiJiangAutoClip — A-SOUL/闪耀舞台 直播自动切片工具，带 tkinter GUI。
 双击 `run_app.bat` 启动。入口 `app_launcher.py`。
 
 ## 两条工作流

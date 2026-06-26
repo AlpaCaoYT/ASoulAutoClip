@@ -1,4 +1,4 @@
-# ASoulAutoClip — A-SOUL / 闪耀舞台 直播自动切片工具
+# ZhiJiangAutoClip — A-SOUL / 闪耀舞台 直播自动切片工具
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue)
 ![FFmpeg](https://img.shields.io/badge/Dependency-FFmpeg-green)
@@ -56,7 +56,7 @@ pip install yutto pydub tkinterdnd2
 ## 项目结构
 
 ```
-ASoulAutoClip/
+ZhiJiangAutoClip/
 ├── app_launcher.py              # GUI 工作台主入口
 ├── run_app.bat                  # Windows 双击启动
 ├── Auto_clip.py                 # 自动切片核心引擎
@@ -110,6 +110,17 @@ ASoulAutoClip/
 
 - [VideoCaptioner](https://github.com/weifang1314/VideoCaptioner) — 必剪 ASR 模块（`utils/bcut_asr.py`）提取自此项目，感谢其探索的 B站公开接口方案
 - [dayanggo/ASoulAutoClip](https://github.com/dayanggo/ASoulAutoClip) — 项目原始基础，本仓库在其之上进行了 GUI 化改造、功能扩展和知识库对齐
+
+## 常见问题
+
+### FFmpeg 被杀毒软件拦截
+生成视频时 FFmpeg 通过子进程操作视频文件，Windows Defender 等杀毒软件可能误报。这是**正常现象**，不是病毒。
+- **解决方法**：在杀毒软件中将项目文件夹添加为例外/白名单
+- 如果只有警告没有拦截，直接忽略即可
+
+### 字幕下载/生成失败
+优先尝试必剪免费 ASR（无需 Key），失败后自动回退 Whisper API（需在高级配置中填写 STT 接口）。
+如果两者都失败：点击「故障检测」查看具体原因。
 
 ## 免责声明
 

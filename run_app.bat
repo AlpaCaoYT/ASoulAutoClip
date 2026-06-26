@@ -60,7 +60,7 @@ if not exist "app_launcher.py" (
 )
 
 echo 找到 Python: %PYTHON%
-echo 正在启动 ASoulAutoClip 工作台...
+echo 正在启动 ZhiJiangAutoClip 工作台...
 "%PYTHON%" app_launcher.py
 if errorlevel 1 (
     echo.

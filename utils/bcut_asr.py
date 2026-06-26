@@ -55,7 +55,7 @@ class BcutASR:
         os.unlink(tmp_path)
         return data
 
-    def transcribe(self, max_retries=3) -> str:
+    def transcribe(self, max_retries=1) -> str:
         """执行语音识别，返回 SRT 格式字幕文本（含重试）"""
         last_error = None
         for attempt in range(max_retries):

@@ -80,7 +80,7 @@ class AppLauncher(TkinterDnD.Tk):
         self._log_path = LOG_DIR / log_name
         _LogWriter.bind(self)  # 绑定日志重定向目标
 
-        self.title("ASoulAutoClip 工作台")
+        self.title("ZhiJiangAutoClip 工作台")
         self.geometry("1000x820")
         self.minsize(800, 600)
 
@@ -95,6 +95,7 @@ class AppLauncher(TkinterDnD.Tk):
         self.sessdata_var = tk.StringVar(value=os.environ.get("BILIBILI_SESSDATA", saved.get("sessdata", "")))
 
         self._running = False
+        self._stop_requested = False
         self._advanced_showing = False
         self._mode = tk.StringVar(value="bv")  # "bv" 或 "video"
         self._step_done = {1: False, 2: False, 3: False, 4: False}
@@ -172,7 +173,7 @@ class AppLauncher(TkinterDnD.Tk):
         # 标题
         header = ttk.Frame(root)
         header.pack(fill=tk.X, pady=(0, 8))
-        ttk.Label(header, text="ASoulAutoClip 工作台", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(header, text="ZhiJiangAutoClip 工作台", style="Title.TLabel").pack(anchor="w")
 
         # 环境状态条
         self.status_frame = ttk.Frame(root)
@@ -307,6 +308,9 @@ class AppLauncher(TkinterDnD.Tk):
                                    style="All.Bold.TButton",
                                    command=self.run_all)
         self.btn_all.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+        self.btn_stop = ttk.Button(flow_bottom, text="■ 终止",
+                                    command=self._stop_run, state="disabled")
+        self.btn_stop.pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(flow_bottom, text="编辑切片数据",
                    command=self._edit_data_source).pack(side=tk.RIGHT, padx=(4, 0))
 
@@ -1032,9 +1036,15 @@ class AppLauncher(TkinterDnD.Tk):
         self._set_buttons_state(False)
         threading.Thread(target=worker, daemon=True).start()
 
+    def _stop_run(self):
+        """用户点击终止按钮"""
+        self._stop_requested = True
+        self.log("[用户] 请求终止运行...")
+
     def _set_buttons_state(self, enabled):
         try:
             self.btn_all.state(["!disabled"] if enabled else ["disabled"])
+            self.btn_stop.state(["disabled"] if enabled else ["!disabled"])
         except Exception:
             pass
 
@@ -1447,10 +1457,15 @@ class AppLauncher(TkinterDnD.Tk):
         def task():
             self._apply_env()
             self._reset_steps()
+            self._stop_requested = False
 
             is_bv = self._mode.get() == "bv"
 
             for num in range(1, 5):
+                if self._stop_requested:
+                    self.log("  用户终止，已停止运行。")
+                    self._mark_step(num, "fail")
+                    break
                 if self._step_done.get(num):
                     continue
 
