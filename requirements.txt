@@ -6,3 +6,4 @@ pydub>=0.25
 tkinterdnd2>=0.4
 sv-ttk>=2.6
 yutto>=2.0
+faster-whisper>=1.0

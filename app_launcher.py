@@ -1238,16 +1238,40 @@ class AppLauncher(TkinterDnD.Tk):
                                     cwd=self.input_dir_var.get().strip())
             if result.returncode != 0:
                 err = (result.stderr or result.stdout or "")[-400:]
-                raise RuntimeError(err if err else "yutto 下载失败")
-            self.log("下载完成，检测字幕文件...")
-            if not self._check_srt_exists():
-                self.log("  ⚠ B站无官方字幕，自动用必剪免费 ASR 生成...")
-                self._generate_srt_for_video()
+                self.log(f"  yutto 下载出错: {err}")
+                self.log("  尝试备用方案...")
             else:
-                self.log("  已检测到 SRT 字幕 ✓")
+                self.log("yutto 下载完成。")
+
+            # 检测并补充字幕
+            if self._check_srt_exists():
+                self.log("  ✓ 字幕已就绪")
+            else:
+                self.log("  B站无官方字幕，启动三级 ASR 链路...")
+                self._generate_srt_for_video()
+
+            # 检测并补充弹幕
+            if self._has_ass_files():
+                self.log("  ✓ 弹幕已就绪")
+            else:
+                self.log("  尝试备用弹幕下载...")
+                try:
+                    from utils.get_danmu import DanmakuDownloader
+                    DanmakuDownloader(
+                        bvid,
+                        self.sessdata_var.get().strip(),
+                        self.input_dir_var.get().strip(),
+                    ).run()
+                    if self._has_ass_files():
+                        self.log("  ✓ 备用弹幕下载成功")
+                    else:
+                        self.log("  ⚠ 弹幕下载失败，不影响后续（无弹幕将自动跳过分析）")
+                except Exception as e:
+                    self.log(f"  弹幕备用下载也失败: {e}")
+
             self._mark_step(1, "done")
 
-        self._run_worker("BV下载 (yutto)", task)
+        self._run_worker("BV下载", task)
 
     # ==========================================
     # 第1步（视频路径）：AI 语音识别生成字幕
@@ -1394,9 +1418,9 @@ class AppLauncher(TkinterDnD.Tk):
         size_mb = video.stat().st_size / (1024 * 1024)
         self.log(f"  找到 {len(videos)} 个视频，选用: {video.name} ({size_mb:.0f} MB)")
 
-        # 自动 ASR 链路：必剪 → Whisper API → 报错
-        from utils.whisper_asr import auto_generate_srt
-        srt_path = auto_generate_srt(str(video), target)
+        # 三级 ASR 链路：必剪(免费) → 本地Whisper(免费) → Whisper API(需Key)
+        from utils.local_asr import auto_generate_srt_robust
+        srt_path = auto_generate_srt_robust(str(video), target)
         self.log(f"  字幕已生成: {Path(srt_path).name}")
 
     def _step1_func(self):
