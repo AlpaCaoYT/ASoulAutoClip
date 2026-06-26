@@ -51,12 +51,21 @@ def transcribe_sensevoice(video_path, output_dir=None):
     print("  使用 SenseVoiceSmall (阿里通义千问) 识别，首次需下载模型 (~200MB)...")
 
     try:
+        import warnings
+        warnings.filterwarnings("ignore")
+        import sys
+        # editdistance 需要 C++ 编译器，用桩模块跳过
+        if "editdistance" not in sys.modules:
+            class _FakeED:
+                def __init__(self, *a, **k): pass
+                def eval(self, *a, **k): return 0
+                def distance(self, *a, **k): return 0
+            sys.modules["editdistance"] = _FakeED()
         from funasr import AutoModel
-    except ImportError:
+    except ImportError as e:
         raise RuntimeError(
-            "funasr 未安装。运行:\n"
-            "  pip install funasr modelscope -i https://pypi.tuna.tsinghua.edu.cn/simple"
-        )
+            f"funasr 依赖缺失 ({e})。需要 VS Build Tools 编译 editdistance。\n"
+            "暂时可跳过此方案，使用 faster-whisper GPU。"
 
     # 提取音频
     print("  提取音频...")
