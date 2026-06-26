@@ -520,14 +520,21 @@ class DanmakuAnalyzer:
 
             if response.status_code == 200:
                 ai_content = response.json()['choices'][0]['message']['content']
-                # 鲁棒 JSON 提取：尝试多种格式
                 result_json = self._parse_ai_json(ai_content)
                 if result_json is None:
-                    print(f"  ⚠ AI 返回无法解析为 JSON，原文: {ai_content[:200]}...")
+                    # 解析失败：用原文前80字做标题
+                    print(f"  ⚠ JSON解析失败，AI返回: {ai_content[:300]}")
+                    # 最后尝试：按行取第一行有意义的内容
+                    title = "AI解析失败"
+                    for line in ai_content.split("\n"):
+                        line = line.strip().strip('"').strip("'")
+                        if len(line) > 5 and "{" not in line and "}" not in line:
+                            title = line[:80]
+                            break
                     return {
-                        "title": ai_content[:80] or "AI解析失败",
-                        "summary": "",
-                        "cover_text_1": "",
+                        "title": title,
+                        "summary": ai_content[:120] if len(ai_content) > 80 else "",
+                        "cover_text_1": title[:10],
                         "cover_text_2": "",
                         "highlight_reason": ""
                     }
@@ -545,7 +552,7 @@ class DanmakuAnalyzer:
             return {"title": f"AI失败: {str(e)[:60]}"}
 
     def _parse_ai_json(self, ai_content):
-        """从 AI 响应中提取 JSON，支持多种格式"""
+        """从 AI 响应中提取 JSON，支持多种格式和常见错误"""
         # 尝试1: 直接解析
         try:
             return json.loads(ai_content.strip())
@@ -561,22 +568,49 @@ class DanmakuAnalyzer:
         except json.JSONDecodeError:
             pass
 
-        # 尝试3: 提取第一个 { 到最后一个 } 之间的内容
-        match = re.search(r'\{.*\}', ai_content, re.S)
-        if match:
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError:
-                pass
+        # 尝试3: 提取 { 到 } 之间（非贪婪不行，用栈匹配）
+        start = ai_content.find("{")
+        if start >= 0:
+            depth = 0
+            for i in range(start, len(ai_content)):
+                if ai_content[i] == "{":
+                    depth += 1
+                elif ai_content[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            return json.loads(ai_content[start:i+1])
+                        except json.JSONDecodeError:
+                            pass
+                        break
 
-        # 尝试4: 修复常见错误后重试
+        # 尝试4: 修复常见中文标点问题
         try:
-            fixed = cleaned.replace('：', ':').replace('，', ',').replace('""', '"')
+            fixed = (cleaned.replace('：', ':').replace('，', ',').replace('、', ',')
+                     .replace('；', ';').replace('。', '.').replace('""', '"'))
             fixed = re.sub(r',\s*}', '}', fixed)
             fixed = re.sub(r',\s*]', ']', fixed)
+            # 修复未闭合的引号
+            fixed = re.sub(r'(?<!\\)"([^"]*?)(?<!\\)"', r'"\1"', fixed)
             return json.loads(fixed)
         except json.JSONDecodeError:
             pass
+
+        # 尝试5: 正则提取关键字段
+        fields = {}
+        patterns = {
+            "title": r'"title"\s*:\s*"([^"]*)"',
+            "summary": r'"summary"\s*:\s*"([^"]*)"',
+            "cover_text_1": r'"cover_text_1"\s*:\s*"([^"]*)"',
+            "cover_text_2": r'"cover_text_2"\s*:\s*"([^"]*)"',
+            "highlight_reason": r'"highlight_reason"\s*:\s*"([^"]*)"',
+        }
+        for key, pat in patterns.items():
+            m = re.search(pat, ai_content)
+            if m:
+                fields[key] = m.group(1)
+        if "title" in fields:
+            return fields
 
         return None
 
