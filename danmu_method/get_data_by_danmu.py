@@ -465,13 +465,15 @@ class DanmakuAnalyzer:
                 broadcast_desc = "A-SOUL双播"
                 broadcast_type = "双播"
         elif len(active_members) > 2:
-            # 团播
-            broadcast_desc = "A-SOUL团播"
+            # 团播：跨团用枝江大团播模板，纯A-SOUL用团播模板
             if has_aso and has_ss:
-                broadcast_type = "枝江团播（A-SOUL + 闪耀舞台）"
+                broadcast_desc = "枝江大团播"
+                broadcast_type = "枝江大团播（A-SOUL × 闪耀舞台）"
             elif has_aso:
+                broadcast_desc = "A-SOUL团播"
                 broadcast_type = "A-SOUL团播"
             else:
+                broadcast_desc = "A-SOUL团播"
                 broadcast_type = "闪耀舞台团播"
         else:
             broadcast_desc = "A-SOUL直播"
