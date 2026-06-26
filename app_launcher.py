@@ -103,7 +103,7 @@ class AppLauncher(TkinterDnD.Tk):
 
         self._running = False
         self._stop_requested = False
-        self._auto_mode = tk.BooleanVar(value=saved.get("auto_mode", True))
+        self._auto_mode = tk.BooleanVar(value=saved.get("auto_mode", False))
         self._advanced_showing = False
         self._mode = tk.StringVar(value="bv")  # "bv" 或 "video"
         self._step_done = {1: False, 2: False, 3: False, 4: False}
@@ -525,37 +525,45 @@ class AppLauncher(TkinterDnD.Tk):
                 self._video_var.set("(未检测到视频)")
                 self._video_combo["values"] = ["(未检测到视频)"]
 
-            # 填充字幕选择（智能匹配视频名）
+            # 填充字幕选择（仅匹配同名，不跨视频匹配）
             self._srt_list = [(str(f), f.name) for f in sorted(srts)]
             self._srt_combo["values"] = [l for _, l in self._srt_list]
-            if self._srt_list:
-                video = self._get_selected_video()
-                matched = self._smart_match_file(srts, video.stem if video else "", ".srt")
-                if matched:
-                    for p, d in self._srt_list:
-                        if p == str(matched):
-                            self._srt_var.set(d); break
-                else:
-                    self._srt_var.set(self._srt_list[0][1])
+            video = self._get_selected_video()
+            if video:
+                matched_srt = self._smart_match_file(srts, video.stem, ".srt")
             else:
-                self._srt_var.set("(无字幕)")
+                matched_srt = None
+            if matched_srt:
+                for p, d in self._srt_list:
+                    if p == str(matched_srt):
+                        self._srt_var.set(d); break
+            elif self._srt_list:
+                self._srt_var.set("(未匹配 — 请手动选择或留空自动生成)")
+                self._srt_combo["values"] = ["(未匹配 — 请手动选择或留空自动生成)"] + [l for _, l in self._srt_list]
+            else:
+                self._srt_var.set("(无字幕 — 将自动生成)")
                 self._srt_combo["values"] = ["(无字幕 — 将自动生成)"]
 
-            # 填充弹幕选择（智能匹配视频名）
+            # 填充弹幕选择（仅匹配同名）
             self._ass_list = [(str(f), f.name) for f in sorted(ass)]
             self._ass_combo["values"] = [l for _, l in self._ass_list]
-            if self._ass_list:
-                video = self._get_selected_video()
-                matched = self._smart_match_file(ass, video.stem if video else "", ".ass")
-                if matched:
-                    for p, d in self._ass_list:
-                        if p == str(matched):
-                            self._ass_var.set(d); break
-                else:
-                    self._ass_var.set(self._ass_list[0][1])
+            if video:
+                matched_ass = self._smart_match_file(ass, video.stem, ".ass")
             else:
-                self._ass_var.set("(无弹幕)")
-                self._ass_combo["values"] = ["(无弹幕 — 将自动跳过分析)"]
+                matched_ass = None
+            if matched_ass:
+                for p, d in self._ass_list:
+                    if p == str(matched_ass):
+                        self._ass_var.set(d); break
+            elif self._ass_list:
+                self._ass_var.set("(未匹配 — 请手动选择或留空自动跳过)")
+                self._ass_combo["values"] = ["(未匹配 — 请手动选择或留空自动跳过)"] + [l for _, l in self._ass_list]
+            else:
+                self._ass_var.set("(无弹幕 — 将自动跳过)")
+                self._ass_combo["values"] = ["(无弹幕 — 将自动跳过)"]
+
+            # 如果用户手动选了未匹配的SRT/ASS，_get_selected_* 返回 None
+            # 这样后续流程会走自动生成/跳过逻辑
         else:
             self.input_label.config(text="输入目录: 不存在", foreground="#e44")
 
@@ -803,18 +811,24 @@ class AppLauncher(TkinterDnD.Tk):
         return self._video_list[0][0] if self._video_list else None
 
     def _get_selected_srt(self):
-        """返回用户选择的 SRT 文件路径"""
+        """返回用户选择的 SRT 文件路径（未匹配时返回 None）"""
+        sel = self._srt_var.get()
+        if "未匹配" in sel or "无字幕" in sel or "自动生成" in sel:
+            return None
         for path, display in self._srt_list:
-            if display == self._srt_var.get():
+            if display == sel:
                 return Path(path)
-        return self._srt_list[0][0] if self._srt_list else None
+        return None
 
     def _get_selected_ass(self):
-        """返回用户选择的 ASS 弹幕文件路径"""
+        """返回用户选择的 ASS 弹幕文件路径（未匹配时返回 None）"""
+        sel = self._ass_var.get()
+        if "未匹配" in sel or "无弹幕" in sel or "自动跳过" in sel:
+            return None
         for path, display in self._ass_list:
-            if display == self._ass_var.get():
+            if display == sel:
                 return Path(path)
-        return self._ass_list[0][0] if self._ass_list else None
+        return None
 
     def _smart_match_file(self, files, video_stem, suffix):
         """智能匹配：优先同名文件，否则列表第一个"""
@@ -1515,7 +1529,9 @@ class AppLauncher(TkinterDnD.Tk):
         return len(ass_files) > 0
 
     def _generate_srt_for_video(self):
-        """用 ASR 为选中视频生成 SRT 字幕"""
+        """用 ASR 为选中视频生成 SRT 字幕（检查终止标志）"""
+        if self._stop_requested:
+            raise InterruptedError("用户终止")
         target = self.input_dir_var.get().strip()
         video = self._get_selected_video()
         if not video:
@@ -1524,6 +1540,8 @@ class AppLauncher(TkinterDnD.Tk):
         # 三级 ASR 链路：必剪(免费) → 本地Whisper(免费) → Whisper API(需Key)
         from utils.local_asr import auto_generate_srt_robust
         srt_path = auto_generate_srt_robust(str(video), target)
+        if self._stop_requested:
+            self.log("  用户终止，字幕已生成的部分可用")
         self.log(f"  字幕已生成: {Path(srt_path).name}")
 
     def _step1_func(self):
