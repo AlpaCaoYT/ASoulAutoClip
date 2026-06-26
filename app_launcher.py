@@ -767,9 +767,18 @@ class AppLauncher(TkinterDnD.Tk):
         base = Path(self.input_dir_var.get())
         self._input_dirs = {}
         if base.exists():
+            # 扫描两级子目录（如 心宜/6月26日xxx/）
             for child in sorted(base.iterdir()):
                 if child.is_dir():
-                    self._input_dirs[child.name] = str(child)
+                    # 直接子文件夹
+                    has_media = any(child.rglob(f"*{ext}") for ext in [".mp4", ".flv", ".mkv", ".mov", ".ts", ".srt", ".ass"])
+                    if has_media:
+                        self._input_dirs[child.name] = str(child)
+                    # 嵌套子文件夹（如 心宜/6月26日/）
+                    for grandchild in sorted(child.iterdir()):
+                        if grandchild.is_dir():
+                            key = f"{child.name}/{grandchild.name}"
+                            self._input_dirs[key] = str(grandchild)
         if not self._input_dirs:
             self._input_dirs[base.name] = str(base)
         self.input_combo["values"] = list(self._input_dirs.keys())
@@ -1678,17 +1687,17 @@ class AppLauncher(TkinterDnD.Tk):
         return len(ass_files) > 0
 
     def _generate_srt_for_video(self):
-        """用 ASR 为选中视频生成 SRT 字幕（检查终止标志）"""
+        """用 ASR 为选中视频生成 SRT 字幕（保存到视频同目录）"""
         if self._stop_requested:
             raise InterruptedError("用户终止")
-        target = self.input_dir_var.get().strip()
         video = self._get_selected_video()
         if not video:
-            raise RuntimeError(f"在 {target} 中未找到视频文件")
+            raise RuntimeError("未找到视频文件")
 
-        # 三级 ASR 链路：必剪(免费) → 本地Whisper(免费) → Whisper API(需Key)
+        # SRT 保存到视频所在目录（而非 input_dir 根目录）
+        output_dir = str(video.parent)
         from utils.local_asr import auto_generate_srt_robust
-        srt_path = auto_generate_srt_robust(str(video), target)
+        srt_path = auto_generate_srt_robust(str(video), output_dir)
         if self._stop_requested:
             self.log("  用户终止，字幕已生成的部分可用")
         self.log(f"  字幕已生成: {Path(srt_path).name}")
