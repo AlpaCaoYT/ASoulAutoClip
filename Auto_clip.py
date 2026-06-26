@@ -364,6 +364,10 @@ def main():
     index_width = max(2, len(str(len(clips))))
     processor = VideoProcessor(CONFIG, input_dir=CONFIG.get('input_dir'))
     for i, clip in enumerate(clips, 1):
+        # 检查终止标志（由 GUI 设置）
+        if os.environ.get("AUTOCLIP_STOP") == "1":
+            print(f"⏹ 用户终止，已处理 {i-1}/{len(clips)} 个片段")
+            break
         try:
             processor.process_clip(
                 i,

@@ -513,58 +513,53 @@ class AppLauncher(TkinterDnD.Tk):
                 self.input_label.config(text="素材目录: 空（请放入素材）", foreground="#c90")
 
             # 填充视频选择下拉框
-            self._video_list = []
-            for v in videos:
-                size_mb = v.stat().st_size / (1024 * 1024)
-                label = f"{v.name}  ({size_mb:.0f} MB)"
-                self._video_list.append((str(v), label))
+            self._video_list = [(str(v), f"{v.name}  ({v.stat().st_size/1048576:.0f} MB)") for v in videos]
             self._video_combo["values"] = [l for _, l in self._video_list]
             if self._video_list:
                 self._video_combo.current(0)
                 self._on_video_select()
             else:
-                self._video_var.set("(未检测到视频)")
-                self._video_combo["values"] = ["(未检测到视频)"]
+                if self._mode.get() == "bv":
+                    self._video_var.set("(BV下载后自动匹配)")
+                    self._video_combo["values"] = ["(BV下载后自动匹配)"]
+                else:
+                    self._video_var.set("(未检测到视频 — 请拖入文件)")
+                    self._video_combo["values"] = ["(未检测到视频 — 请拖入文件)"]
 
-            # 填充字幕选择（仅匹配同名，不跨视频匹配）
+            # 填充字幕选择（仅匹配同名视频，BV模式不预选）
             self._srt_list = [(str(f), f.name) for f in sorted(srts)]
             self._srt_combo["values"] = [l for _, l in self._srt_list]
             video = self._get_selected_video()
-            if video:
-                matched_srt = self._smart_match_file(srts, video.stem, ".srt")
-            else:
-                matched_srt = None
+            matched_srt = self._smart_match_file(srts, video.stem, ".srt") if video else None
             if matched_srt:
                 for p, d in self._srt_list:
-                    if p == str(matched_srt):
-                        self._srt_var.set(d); break
-            elif self._srt_list:
+                    if p == str(matched_srt): self._srt_var.set(d); break
+            elif self._srt_list and video:
                 self._srt_var.set("(未匹配 — 请手动选择或留空自动生成)")
                 self._srt_combo["values"] = ["(未匹配 — 请手动选择或留空自动生成)"] + [l for _, l in self._srt_list]
+            elif self._mode.get() == "bv":
+                self._srt_var.set("(BV下载后自动匹配)")
+                self._srt_combo["values"] = ["(BV下载后自动匹配)"]
             else:
                 self._srt_var.set("(无字幕 — 将自动生成)")
                 self._srt_combo["values"] = ["(无字幕 — 将自动生成)"]
 
-            # 填充弹幕选择（仅匹配同名）
+            # 填充弹幕选择（仅匹配同名视频）
             self._ass_list = [(str(f), f.name) for f in sorted(ass)]
             self._ass_combo["values"] = [l for _, l in self._ass_list]
-            if video:
-                matched_ass = self._smart_match_file(ass, video.stem, ".ass")
-            else:
-                matched_ass = None
+            matched_ass = self._smart_match_file(ass, video.stem, ".ass") if video else None
             if matched_ass:
                 for p, d in self._ass_list:
-                    if p == str(matched_ass):
-                        self._ass_var.set(d); break
-            elif self._ass_list:
+                    if p == str(matched_ass): self._ass_var.set(d); break
+            elif self._ass_list and video:
                 self._ass_var.set("(未匹配 — 请手动选择或留空自动跳过)")
                 self._ass_combo["values"] = ["(未匹配 — 请手动选择或留空自动跳过)"] + [l for _, l in self._ass_list]
+            elif self._mode.get() == "bv":
+                self._ass_var.set("(BV下载后自动匹配)")
+                self._ass_combo["values"] = ["(BV下载后自动匹配)"]
             else:
                 self._ass_var.set("(无弹幕 — 将自动跳过)")
                 self._ass_combo["values"] = ["(无弹幕 — 将自动跳过)"]
-
-            # 如果用户手动选了未匹配的SRT/ASS，_get_selected_* 返回 None
-            # 这样后续流程会走自动生成/跳过逻辑
         else:
             self.input_label.config(text="输入目录: 不存在", foreground="#e44")
 
@@ -896,11 +891,14 @@ class AppLauncher(TkinterDnD.Tk):
                 break
 
     def _get_selected_video(self):
-        """返回用户选择的视频文件路径"""
+        """返回用户选择的视频文件路径（BV模式未下载时返回None）"""
+        sel = self._video_var.get()
+        if "BV下载" in sel or "未检测到" in sel:
+            return None
         for path, display in self._video_list:
-            if display == self._video_var.get():
+            if display == sel:
                 return Path(path)
-        return self._video_list[0][0] if self._video_list else None
+        return Path(self._video_list[0][0]) if self._video_list else None
 
     def _get_selected_srt(self):
         """返回用户选择的 SRT 文件路径（未匹配时返回 None）"""
@@ -1322,6 +1320,8 @@ class AppLauncher(TkinterDnD.Tk):
         os.environ["STT_API_KEY"] = self._stt_key_var.get().strip()
         os.environ["STT_BASE_URL"] = self._stt_url_var.get().strip()
         os.environ["STT_MODEL"] = self._stt_model_var.get().strip()
+        # 终止标志（供 Auto_clip 等长时间运行的模块检查）
+        os.environ["AUTOCLIP_STOP"] = "1" if self._stop_requested else "0"
 
     def _update_mode_hint(self):
         bv_mode = self._mode.get() == "bv"
