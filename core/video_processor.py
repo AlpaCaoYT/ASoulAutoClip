@@ -113,7 +113,15 @@ class VideoProcessor:
             
         cmd.extend(['-y', str(output_video)])
 
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        result = subprocess.run(cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode != 0:
+            err = result.stderr.decode("utf-8", errors="replace")[-500:] if result.stderr else "未知错误"
+            raise RuntimeError(f"FFmpeg 切片失败: {err}")
+        # 从 stderr 提取时长信息显示进度
+        stderr_text = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
+        time_match = re.search(r'time=(\d+:\d+:\d+\.\d+)', stderr_text)
+        if time_match:
+            print(f"   已生成: {output_video.name} (时长: {time_match.group(1)})")
         
         if generate_cover:
             cover_config = self.config.get('cover')

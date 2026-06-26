@@ -1566,9 +1566,6 @@ class AppLauncher(TkinterDnD.Tk):
                             self._mark_step(num, "done")
                             self._step_done[num] = True
                             break
-                            self._mark_step(num, "done")
-                            self._step_done[num] = True
-                            break
 
         self._run_worker("一键全部流程", task)
 

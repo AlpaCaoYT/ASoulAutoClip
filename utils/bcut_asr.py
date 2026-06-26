@@ -45,9 +45,13 @@ class BcutASR:
         result = subprocess.run(cmd, capture_output=True, check=False)
         if result.returncode != 0:
             err = result.stderr.decode("utf-8", errors="replace")[-300:] if result.stderr else "未知错误"
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
             raise RuntimeError(f"FFmpeg 音频提取失败: {err}")
 
         if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
             raise RuntimeError("FFmpeg 提取的音频文件为空，请检查视频文件是否完整")
 
         with open(tmp_path, "rb") as f:

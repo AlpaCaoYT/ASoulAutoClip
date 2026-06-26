@@ -118,7 +118,6 @@ def transcribe_with_whisper(
             # Whisper API 通常有 25MB 文件限制，大文件需要分片
             if file_size_mb > 20:
                 os.unlink(audio_path)
-                # 对大文件只取前 4 小时
                 print(f"  音频较大 ({file_size_mb:.0f} MB)，取前 4 小时...")
                 audio_path = _extract_audio_chunk(video_path, duration_sec=14400, sample_rate=16000)
 

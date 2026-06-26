@@ -330,7 +330,7 @@ def main():
     try:
         with open(data_source_path, 'r', encoding='utf-8') as f:
             raw_text = f.read()
-        json_match = re.search(r'\[.*\]', raw_text, re.S)
+        json_match = re.search(r'\[.*?\]', raw_text, re.S) if not raw_text.strip().startswith('[') else re.search(r'\[.*\]', raw_text, re.S)
         if not json_match:
             print("❌ 数据源文件中未找到 JSON 数组格式 (以 '[' 开头，以 ']' 结尾)")
             return
