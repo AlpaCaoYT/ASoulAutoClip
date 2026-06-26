@@ -175,35 +175,40 @@ class DanmakuAnalyzer:
         return str(selected_dir)
 
     def _auto_detect_files(self):
-        """自动检测文件夹下的 ASS 和 SRT 文件"""
-        print(f"正在扫描文件夹: {self.input_dir}")
+        """检测 ASS 和 SRT 文件（优先使用环境变量指定的文件）"""
+        env_ass = os.environ.get("AUTOCLIP_ASS_FILE", "").strip()
+        env_srt = os.environ.get("AUTOCLIP_SRT_FILE", "").strip()
 
-        if not os.path.exists(self.input_dir):
-            raise FileNotFoundError(f"文件夹不存在 -> {self.input_dir}")
+        # 使用 GUI 指定的文件
+        if env_ass and os.path.exists(env_ass):
+            self.ass_file = env_ass
+            print(f"✅ 使用指定弹幕: {os.path.basename(env_ass)}")
+        if env_srt and os.path.exists(env_srt):
+            self.srt_file = env_srt
+            print(f"✅ 使用指定字幕: {os.path.basename(env_srt)}")
 
-        files = os.listdir(self.input_dir)
-        # 忽略大小写进行后缀匹配
-        ass_files = [f for f in files if f.lower().endswith('.ass')]
-        srt_files = [f for f in files if f.lower().endswith('.srt')]
+        # 未指定则自动检测
+        if not self.ass_file or not self.srt_file:
+            print(f"正在扫描文件夹: {self.input_dir}")
+            if not os.path.exists(self.input_dir):
+                raise FileNotFoundError(f"文件夹不存在 -> {self.input_dir}")
 
-        # 检测 ASS 文件数量
-        if len(ass_files) == 0:
-            raise FileNotFoundError("在文件夹中未找到 .ass 弹幕文件")
-        elif len(ass_files) > 1:
-            raise FileNotFoundError(f"在文件夹中找到 {len(ass_files)} 个 .ass 文件，请保持弹幕文件唯一。")
+            files = os.listdir(self.input_dir)
+            ass_files = [f for f in files if f.lower().endswith('.ass')]
+            srt_files = [f for f in files if f.lower().endswith('.srt')]
 
-        # 检测 SRT 文件数量
-        if len(srt_files) == 0:
-            raise FileNotFoundError("在文件夹中未找到 .srt 字幕文件")
-        elif len(srt_files) > 1:
-            raise FileNotFoundError(f"在文件夹中找到 {len(srt_files)} 个 .srt 文件，请保持字幕文件唯一。")
+            if not self.ass_file:
+                if len(ass_files) == 0:
+                    raise FileNotFoundError("在文件夹中未找到 .ass 弹幕文件")
+                self.ass_file = os.path.join(self.input_dir, ass_files[0])
+                print(f"✅ 已锁定弹幕文件: {ass_files[0]}")
 
-        # 锁定文件
-        self.ass_file = os.path.join(self.input_dir, ass_files[0])
-        self.srt_file = os.path.join(self.input_dir, srt_files[0])
-        
-        print(f"✅ 已锁定弹幕文件: {ass_files[0]}")
-        print(f"✅ 已锁定字幕文件: {srt_files[0]}")
+            if not self.srt_file:
+                if len(srt_files) == 0:
+                    raise FileNotFoundError("在文件夹中未找到 .srt 字幕文件")
+                self.srt_file = os.path.join(self.input_dir, srt_files[0])
+                print(f"✅ 已锁定字幕文件: {srt_files[0]}")
+
         print("-" * 50)
 
     def parse_ass_time(self, time_str):
