@@ -63,12 +63,14 @@ def transcribe_local(video_path, output_dir=None, model_size="small"):
                              download_root=model_dir)
         print(f"  模型已加载，开始识别...")
 
-        # 识别
+        # 识别（beam_size=1 速度最快，vad_filter 跳过静音）
         segments, info = model.transcribe(
             audio_path,
             language="zh",
-            beam_size=5,
-            vad_filter=True,  # 过滤静音
+            beam_size=1,
+            best_of=1,
+            vad_filter=True,
+            condition_on_previous_text=False,
         )
         print(f"  检测到语言: {info.language} (概率: {info.language_probability:.2f})")
 
