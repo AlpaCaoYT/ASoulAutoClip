@@ -157,10 +157,11 @@ def auto_generate_srt_robust(video_path, output_dir=None):
     except Exception:
         print("  必剪已失效，切换 whisper GPU...")
 
-    # [2] faster-whisper large-v3 GPU（本地，已就绪）
+    # [2] faster-whisper GPU（模型尺寸从GUI选择，默认 tiny）
     try:
-        print("  [2/3] faster-whisper large-v3 GPU...")
-        return transcribe_local(video_path, output_dir, model_size="large-v3")
+        model_size = os.environ.get("WHISPER_MODEL", "tiny").strip() or "tiny"
+        print(f"  [2/3] faster-whisper {model_size} GPU...")
+        return transcribe_local(video_path, output_dir, model_size=model_size)
     except Exception as e:
         print(f"  whisper 失败: {e}")
 

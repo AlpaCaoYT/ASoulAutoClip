@@ -149,6 +149,9 @@ class AppLauncher(TkinterDnD.Tk):
         self._stt_url_var = tk.StringVar(value=saved.get("stt_base_url", "https://api.openai.com/v1"))
         self._stt_model_var = tk.StringVar(value=saved.get("stt_model", "whisper-1"))
 
+        # 本地 Whisper 模型选择
+        self._whisper_model_var = tk.StringVar(value=saved.get("whisper_model", "tiny"))
+
         self._build_ui()
         self._check_environment()
 
@@ -425,6 +428,17 @@ class AppLauncher(TkinterDnD.Tk):
                              foreground="#888", font=("Microsoft YaHei UI", 8))
         stt_hint.grid(row=3, column=0, sticky="ew", pady=(2, 0))
 
+        # 本地 Whisper 模型选择
+        wh_row = ttk.Frame(stt_box)
+        wh_row.grid(row=4, column=0, sticky="ew", pady=(6, 0))
+        ttk.Label(wh_row, text="本地模型", width=12).pack(side=tk.LEFT)
+        wh_combo = ttk.Combobox(wh_row, textvariable=self._whisper_model_var,
+                                 values=["tiny", "base", "small", "medium", "large-v3"],
+                                 state="readonly", width=12)
+        wh_combo.pack(side=tk.LEFT)
+        ttk.Label(wh_row, text="tiny=最快 | large-v3=最准(GPU推荐)", foreground="#888",
+                  font=("Microsoft YaHei UI", 8)).pack(side=tk.LEFT, padx=(8, 0))
+
         bvid_box = ttk.LabelFrame(self.advanced_frame, text="B站下载配置（下载弹幕用）", padding=10)
         bvid_box.pack(fill=tk.X, pady=(0, 8))
         self._row(bvid_box, "BV号/链接", self.bvid_var, 0)
@@ -687,6 +701,7 @@ class AppLauncher(TkinterDnD.Tk):
                 "stt_api_key": self._stt_key_var.get().strip(),
                 "stt_base_url": self._stt_url_var.get().strip(),
                 "stt_model": self._stt_model_var.get().strip(),
+                "whisper_model": self._whisper_model_var.get().strip(),
                 "auto_mode": self._auto_mode.get(),
             }
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -1410,6 +1425,7 @@ class AppLauncher(TkinterDnD.Tk):
         os.environ["STT_API_KEY"] = self._stt_key_var.get().strip()
         os.environ["STT_BASE_URL"] = self._stt_url_var.get().strip()
         os.environ["STT_MODEL"] = self._stt_model_var.get().strip()
+        os.environ["WHISPER_MODEL"] = self._whisper_model_var.get().strip()
         # 终止标志（供 Auto_clip 等长时间运行的模块检查）
         os.environ["AUTOCLIP_STOP"] = "1" if self._stop_requested else "0"
 
