@@ -183,6 +183,9 @@ class AppLauncher(TkinterDnD.Tk):
         self.python_label.pack(side=tk.LEFT, padx=(0, 16))
         self.input_label = ttk.Label(self.status_frame, text="检测中...", foreground="#999")
         self.input_label.pack(side=tk.LEFT)
+        self.diag_btn = ttk.Button(self.status_frame, text="故障检测", width=9,
+                                    command=self._show_diagnostics)
+        self.diag_btn.pack(side=tk.RIGHT)
 
         # 素材路径
         paths_box = ttk.LabelFrame(root, text="素材路径", padding=10)
@@ -448,6 +451,90 @@ class AppLauncher(TkinterDnD.Tk):
         else:
             self.input_label.config(text="输入目录: 不存在", foreground="#e44")
 
+        # 快速诊断（静默运行，只更新按钮颜色）
+        self._run_quick_diag()
+
+    def _run_quick_diag(self):
+        """后台静默运行诊断，更新按钮状态"""
+        try:
+            from utils.diagnostics import run_diagnostics, diagnostics_summary
+            results = run_diagnostics(self.input_dir_var.get().strip())
+            _, _, errs, passed = diagnostics_summary(results)
+            if passed:
+                self.diag_btn.configure(text="✓ 状态正常")
+                self.after(5000, lambda: self.diag_btn.configure(text="故障检测"))
+            else:
+                self.diag_btn.configure(text=f"✗ {errs}个问题")
+        except Exception:
+            pass
+
+    def _show_diagnostics(self):
+        """打开故障检测窗口"""
+        self.log("正在运行故障检测...")
+        try:
+            from utils.diagnostics import run_diagnostics, print_diagnostics, diagnostics_summary
+        except ImportError:
+            messagebox.showerror("错误", "诊断模块未找到 (utils/diagnostics.py)")
+            return
+
+        results = run_diagnostics(self.input_dir_var.get().strip())
+
+        win = tk.Toplevel(self)
+        win.title("故障检测")
+        win.geometry("750x550")
+        win.minsize(600, 400)
+        win.transient(self)
+
+        icons = {"ok": "✓", "warn": "⚠", "error": "✗", "info": "ℹ"}
+        colors = {"ok": "#4a4", "warn": "#c90", "error": "#e44", "info": "#888"}
+
+        ok, warn, errs, passed = diagnostics_summary(results)
+        summary_text = f"检测完毕: {ok} 通过, {warn} 警告, {errs} 错误 — {'✓ 系统就绪' if passed else '✗ 存在问题'}"
+        summary_label = ttk.Label(win, text=summary_text,
+                                   font=("Microsoft YaHei UI", 10, "bold"),
+                                   foreground="#4a4" if passed else "#e44")
+        summary_label.pack(pady=(12, 8), padx=12)
+
+        canvas = tk.Canvas(win, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(win, orient=tk.VERTICAL, command=canvas.yview)
+        scroll_frame = ttk.Frame(canvas)
+
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        for r in results:
+            row = ttk.Frame(scroll_frame)
+            row.pack(fill=tk.X, padx=12, pady=3)
+            icon_color = colors.get(r["level"], "#999")
+            icon = icons.get(r["level"], "?")
+
+            # 图标 + 名称
+            left = ttk.Frame(row)
+            left.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            tk.Label(left, text=icon, fg=icon_color, font=("Consolas", 11), width=2, anchor="w").pack(side=tk.LEFT)
+            ttk.Label(left, text=r["name"], font=("Microsoft YaHei UI", 9, "bold"), width=20, anchor="w").pack(side=tk.LEFT)
+            ttk.Label(left, text=r["message"], font=("Microsoft YaHei UI", 9), foreground="#aaa").pack(side=tk.LEFT, padx=(8, 0))
+
+            # 修复建议
+            if r.get("fix"):
+                fix_row = ttk.Frame(scroll_frame)
+                fix_row.pack(fill=tk.X, padx=28, pady=(0, 3))
+                ttk.Label(fix_row, text=f"→ {r['fix']}", foreground="#888",
+                          font=("Microsoft YaHei UI", 8)).pack(anchor="w")
+
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(12, 0), pady=(0, 8))
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 12), pady=(0, 8))
+
+        ttk.Button(win, text="关闭", command=win.destroy).pack(pady=(0, 12))
+
+        # 同时输出到日志
+        for r in results:
+            icon = icons.get(r["level"], "?")
+            self.log(f"{icon} {r['name']}: {r['message']}")
+            if r.get("fix"):
+                self.log(f"   → {r['fix']}")
+
     def _save_config(self):
         try:
             data = {
@@ -674,12 +761,24 @@ class AppLauncher(TkinterDnD.Tk):
             pass
 
     def log_error(self, step_name, exc_info):
-        """结构化报错：分类 + 计数 + 写日志"""
-        key = type(exc_info[1]).__name__ if exc_info and exc_info[1] else "UnknownError"
+        """结构化报错：分类 + 根因 + 修复建议 + 写日志"""
+        exc = exc_info[1] if exc_info and exc_info[1] else None
+        key = type(exc).__name__ if exc else "UnknownError"
         self._error_count[key] = self._error_count.get(key, 0) + 1
-        msg = f"[{step_name}] {key}: {exc_info[1]}"
-        self.log(msg, level="ERROR")
-        self.log(traceback.format_exc(), level="TRACE")
+
+        # 尝试分类错误
+        try:
+            from utils.diagnostics import classify_error
+            diag = classify_error(exc, context=step_name)
+            self.log(f"[{step_name}] ❌ 失败原因: {diag['reason']}", level="ERROR")
+            self.log(f"   💡 修复建议: {diag['fix']}", level="ERROR")
+        except Exception:
+            self.log(f"[{step_name}] {key}: {exc}", level="ERROR")
+
+        # 详细 traceback
+        tb = traceback.format_exc()
+        if tb and tb != "NoneType: None\n":
+            self.log(tb.strip()[-500:], level="TRACE")
 
     def _update_api_status(self):
         key = self.api_key_var.get().strip()
@@ -916,7 +1015,15 @@ class AppLauncher(TkinterDnD.Tk):
                 elapsed = time.time() - t0
                 self.log(f"[{title}] 失败 ✗ (用时 {elapsed:.0f} 秒)")
                 self.log_error(title, sys.exc_info())
-                messagebox.showerror("运行失败", f"{title} 失败，详情看日志。")
+                exc = sys.exc_info()[1]
+                err_msg = str(exc) if exc else "未知错误"
+                try:
+                    from utils.diagnostics import classify_error
+                    diag = classify_error(exc, context=title)
+                    err_msg = f"{diag['reason']}\n\n💡 {diag['fix']}"
+                except Exception:
+                    pass
+                messagebox.showerror("运行失败", f"「{title}」失败\n\n{err_msg}")
             finally:
                 self._running = False
                 self._set_buttons_state(True)
