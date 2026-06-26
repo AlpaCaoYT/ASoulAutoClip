@@ -138,8 +138,24 @@ def _check_dir(path, label):
     return {"name": f"目录: {label}", "level": "ok", "message": f"{path} ({info})"}
 
 
+def _read_config(key_name, default=""):
+    """从 app_config.json 读取配置（env var 优先）"""
+    env_val = os.environ.get(key_name, "").strip()
+    if env_val:
+        return env_val
+    try:
+        config_path = Path(__file__).resolve().parent.parent / "app_config.json"
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return str(data.get(key_name.lower(), default)).strip()
+    except Exception:
+        pass
+    return default
+
+
 def _check_api_key():
-    key = os.environ.get("SILICONFLOW_API_KEY", "").strip()
+    key = _read_config("SILICONFLOW_API_KEY") or _read_config("api_key")
     if not key:
         return {
             "name": "AI API Key",
@@ -159,8 +175,8 @@ def _check_api_key():
 
 
 def _check_stt_api():
-    key = os.environ.get("STT_API_KEY", "").strip()
-    url = os.environ.get("STT_BASE_URL", "").strip()
+    key = _read_config("STT_API_KEY") or _read_config("stt_api_key")
+    url = _read_config("STT_BASE_URL") or _read_config("stt_base_url")
     if not key:
         return {
             "name": "STT 接口",
@@ -343,7 +359,7 @@ def run_diagnostics(input_dir=None):
     # 网络
     results.append(_check_network("bilibili.com", "B站"))
     # DeepSeek 检查：有 Key 才测连通性，没 Key 不测
-    api_key = os.environ.get("SILICONFLOW_API_KEY", "").strip()
+    api_key = _read_config("SILICONFLOW_API_KEY") or _read_config("api_key")
     if api_key:
         results.append(_check_network("api.deepseek.com", "DeepSeek API"))
     else:
