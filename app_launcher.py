@@ -17,10 +17,18 @@ from tkinterdnd2 import TkinterDnD
 _py_base = Path(sys.executable).parent / "Lib" / "site-packages" / "nvidia"
 if _py_base.exists():
     for _d in _py_base.rglob("bin"):
+        _dir = str(_d)
         try:
-            os.add_dll_directory(str(_d))
+            os.add_dll_directory(_dir)
         except Exception:
             pass
+        # 预加载 cublas DLL（确保 ctranslate2 能找到）
+        for _dll in _d.glob("cublas64_*.dll"):
+            try:
+                import ctypes
+                ctypes.CDLL(str(_dll))
+            except Exception:
+                pass
 # ================================================================
 
 # Windows GBK 控制台无法输出 emoji，统一用 LogWriter 拦截所有 print
