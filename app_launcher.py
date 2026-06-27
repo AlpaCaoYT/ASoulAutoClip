@@ -2241,4 +2241,22 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import builtins
+    # 启动前快照：万一 _LogWriter 挂了，用这个救命
+    _real_print = builtins.print if hasattr(builtins, 'print') else lambda *a, **k: None
+    try:
+        _real_print("[启动] 正在初始化...", file=_sys_stderr_backup)
+        main()
+    except Exception as e:
+        import datetime as _dt
+        _crash_log = PROJECT_ROOT / f"crash_{_dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        _tb = traceback.format_exc()
+        _real_print(_tb, file=_sys_stderr_backup)
+        with open(_crash_log, "w", encoding="utf-8") as _f:
+            _f.write(_tb)
+        _real_print(f"\n崩溃日志已保存: {_crash_log}", file=_sys_stderr_backup)
+        try:
+            import tkinter.messagebox as _mb
+            _mb.showerror("启动失败", f"程序崩溃，详情见:\n{_crash_log}")
+        except Exception:
+            pass
