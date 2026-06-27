@@ -383,15 +383,32 @@ class AppLauncher(TkinterDnD.Tk):
         self.btn_stop = ttk.Button(flow_bottom, text="■ 终止",
                                     command=self._stop_run, state="disabled")
         self.btn_stop.pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(flow_bottom, text="编辑切片数据",
-                   command=self._edit_data_source).pack(side=tk.RIGHT, padx=(4, 0))
+        self._edit_btn = ttk.Button(flow_bottom, text="编辑切片数据",
+                                     command=self._edit_data_source)
+        self._edit_btn.pack(side=tk.RIGHT, padx=(4, 0))
 
-        # 全自动模式开关
+        # 配置行：切片数量 + 封面风格
+        clip_cfg = ttk.Frame(actions)
+        clip_cfg.pack(fill=tk.X, pady=(4, 2))
+        ttk.Label(clip_cfg, text="切片数", font=("Microsoft YaHei UI", 8)).pack(side=tk.LEFT)
+        clip_spin = ttk.Spinbox(clip_cfg, textvariable=self._cover_count_var,
+                                 from_=1, to=20, width=4)
+        clip_spin.pack(side=tk.LEFT, padx=(2, 12))
+        ttk.Label(clip_cfg, text="封面", font=("Microsoft YaHei UI", 8)).pack(side=tk.LEFT)
+        ttk.Combobox(clip_cfg, textvariable=self._cover_style_var,
+                     values=["style1", "style2", "style3", "style4"],
+                     state="readonly", width=10).pack(side=tk.LEFT)
+
+        # 模式开关行
         auto_row = ttk.Frame(actions)
-        auto_row.pack(fill=tk.X, pady=(0, 2))
+        auto_row.pack(fill=tk.X, pady=(8, 2))
         self._auto_cb = ttk.Checkbutton(auto_row, text="全自动模式（出错自动跳过，不弹窗询问）",
                                          variable=self._auto_mode)
         self._auto_cb.pack(side=tk.LEFT)
+        self._pause_var = tk.BooleanVar(value=saved.get("pause_after_analysis", False))
+        self._pause_cb = ttk.Checkbutton(auto_row, text="分析后暂停校核（第3步后暂停，校核后再生成切片）",
+                                          variable=self._pause_var)
+        self._pause_cb.pack(side=tk.LEFT, padx=(16, 0))
 
         # 快捷工具
         util_row = ttk.Frame(actions)
@@ -623,8 +640,20 @@ class AppLauncher(TkinterDnD.Tk):
                 finally:
                     self._organizing = False
 
+        # 更新编辑按钮状态
+        self._update_edit_btn()
+
         # 快速诊断（后台线程，不阻塞 UI）
         threading.Thread(target=self._run_quick_diag, daemon=True).start()
+
+    def _update_edit_btn(self):
+        """Data_source.txt 存在时高亮编辑按钮"""
+        target = self.input_dir_var.get().strip()
+        ds = os.path.join(target, "Data_source.txt")
+        if os.path.exists(ds):
+            self._edit_btn.configure(text="✎ 编辑切片数据（已就绪）")
+        else:
+            self._edit_btn.configure(text="编辑切片数据")
 
     def _run_quick_diag(self):
         """后台静默运行诊断（仅本地检查，不联网避免卡顿）"""
@@ -716,6 +745,7 @@ class AppLauncher(TkinterDnD.Tk):
                 "stt_model": self._stt_model_var.get().strip(),
                 "whisper_model": self._whisper_model_var.get().strip(),
                 "auto_mode": self._auto_mode.get(),
+                "pause_after_analysis": self._pause_var.get(),
             }
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -1973,6 +2003,7 @@ class AppLauncher(TkinterDnD.Tk):
                         self.log("  视频模式下无弹幕文件(.ass)，自动跳过弹幕分析。")
                         self._mark_step(3, "done")
                         self._step_done[3] = True
+                        self.after(0, self._update_edit_btn)
                         continue
 
                 # 第4步前检查 Data_source.txt 是否存在
@@ -2008,6 +2039,11 @@ class AppLauncher(TkinterDnD.Tk):
                             analyzer = DanmakuAnalyzer()
                             analyzer.run()
                             self._step_done[3] = True
+                            if self._pause_var.get():
+                                self.log("  ⏸ 分析后暂停模式 — 请校核切片数据后再手动点击第4步")
+                                self.log("  提示: 点击「编辑切片数据」修改标题/封面文字")
+                                self._mark_step(3, "done")
+                                return  # 暂停，不继续第4步
                         elif num == 4:
                             import Auto_clip
                             target = self.input_dir_var.get().strip()
