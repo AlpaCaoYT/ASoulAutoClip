@@ -61,9 +61,13 @@ if not exist "app_launcher.py" (
 
 echo 找到 Python: %PYTHON%
 echo 正在启动 ZhiJiangAutoClip 工作台...
-"%PYTHON%" app_launcher.py
+echo.
+"%PYTHON%" app_launcher.py 2>&1
 if errorlevel 1 (
     echo.
-    echo [错误] 启动失败，请把上面红色的错误信息截图发我
+    echo ========================================
+    echo [错误] 启动失败，具体错误见上方
+    echo 请截图完整的错误信息（从上到下）
+    echo ========================================
     pause
 )
