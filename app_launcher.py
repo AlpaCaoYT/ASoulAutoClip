@@ -51,6 +51,13 @@ class _LogWriter(io.TextIOBase):
                         app._write_to_log(stripped)
                     except Exception:
                         pass
+        elif app is None and text:
+            # 启动阶段 crash → 直接写到真实 stderr（用户可见）
+            try:
+                _sys_stderr_backup.write(text)
+                _sys_stderr_backup.flush()
+            except Exception:
+                pass
         return len(text)
 
     def flush(self):
