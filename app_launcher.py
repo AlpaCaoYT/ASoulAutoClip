@@ -446,6 +446,10 @@ class AppLauncher(TkinterDnD.Tk):
                    command=self._edit_highlight_review).pack(side=tk.RIGHT, padx=4)
         ttk.Button(flow_bottom, text="完整字幕",
                    command=self._edit_subtitle_speakers).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(flow_bottom, text="Aegisub",
+                   command=self._open_in_aegisub).pack(side=tk.RIGHT, padx=2)
+        ttk.Button(flow_bottom, text="导入ASS",
+                   command=self._import_aegisub_styles).pack(side=tk.RIGHT, padx=2)
 
         # 配置行：切片数量 + 封面风格
         clip_cfg = ttk.Frame(actions)
@@ -1622,7 +1626,7 @@ class AppLauncher(TkinterDnD.Tk):
         ttk.Button(btn_row, text="取消", command=win.destroy).pack(side=tk.RIGHT, padx=4)
 
     def _edit_highlight_review(self):
-        """高光片段校核器 — 逐段审阅 AI 分析结果 + 播放视频 + 指定发言人"""
+        """高光片段校核器 — 逐段审阅 + 预览含字幕视频 + 编辑时间/增删字幕 + 指定发言人"""
         from core.subtitle_utils import SubtitleUtils
         # 1. 读取 Data_source.txt
         target = self.input_dir_var.get().strip()
@@ -1649,7 +1653,6 @@ class AppLauncher(TkinterDnD.Tk):
             return
         video = self._get_selected_video()
         if not video:
-            # 尝试从 _video_list 中回退
             if self._video_list:
                 video = Path(self._video_list[0][0])
         srt_entries = SubtitleUtils.parse_srt(str(srt_path))
@@ -1657,7 +1660,7 @@ class AppLauncher(TkinterDnD.Tk):
             messagebox.showinfo("提示", "字幕文件为空或格式无法解析。")
             return
 
-        # 3. 按片段提取字幕
+        # 3. 按片段提取字幕（引用原列表以便增删同步）
         segment_data = []
         for seg in segments:
             ts = seg.get("timestamp", "")
@@ -1669,28 +1672,71 @@ class AppLauncher(TkinterDnD.Tk):
                 t1 = self._parse_srt_time(parts[1].strip())
             except Exception:
                 continue
-            subs = [s for s in srt_entries if s["end"] > t0 and s["start"] < t1]
-            # 往前多取 2 句，往后多取 1 句做上下文
             idxs = [i for i, s in enumerate(srt_entries) if s["end"] > t0 and s["start"] < t1]
             if idxs:
                 pre = max(0, idxs[0] - 2)
                 post = min(len(srt_entries), idxs[-1] + 2)
-                subs = srt_entries[pre:post]
+                subs = srt_entries[pre:post]  # 保留引用！
+                sub_indices = list(range(pre, post))
             else:
                 subs = []
+                sub_indices = []
             segment_data.append({
                 "seg": seg,
                 "subs": subs,
+                "sub_indices": sub_indices,  # srt_entries 中的位置
                 "t0": t0,
                 "t1": t1,
             })
 
-        # 4. 构建 UI
+        # 4. 构建 UI — 先底部工具栏再 Canvas，避免遮挡
         win = tk.Toplevel(self)
         win.title("高光片段校核器")
-        win.geometry("1000x720")
-        win.minsize(800, 500)
+        win.geometry("1050x750")
+        win.minsize(900, 550)
         win.transient(self)
+
+        # 底部按钮（先 pack，固定不滚动）
+        bottom = ttk.Frame(win, padding=12)
+        bottom.pack(fill=tk.X, side=tk.BOTTOM)
+
+        def _save_all():
+            speaker_map = {}
+            for key, var in speaker_vars.items():
+                sp = var.get()
+                if sp == "未指定":
+                    continue
+                seg_idx, sub_idx = key
+                sd = segment_data[seg_idx]
+                if sub_idx < len(sd["subs"]):
+                    speaker_map[id(sd["subs"][sub_idx])] = sp
+            def _fmt_ts(sec):
+                h, m, s = int(sec//3600), int((sec%3600)//60), int(sec%60)
+                return f"{h:02d}:{m:02d}:{s:02d},{int((sec%1)*1000):03d}"
+            out_lines = []
+            for i, entry in enumerate(srt_entries, 1):
+                out_lines.append(str(i))
+                out_lines.append(f"{_fmt_ts(entry['start'])} --> {_fmt_ts(entry['end'])}")
+                sp = speaker_map.get(id(entry), "")
+                text = entry["text"]
+                if sp:
+                    text = f"[{sp}] {text}"
+                out_lines.append(text)
+                out_lines.append("")
+            with open(str(srt_path), "w", encoding="utf-8-sig") as f:
+                f.write("\n".join(out_lines))
+            self.log(f"  发言人标记已保存: {srt_path.name}")
+            # 解锁第3步，允许切换到精确模式后重分析
+            self._step_done[3] = False
+            self._mark_step(3, "wait")
+            messagebox.showinfo("已保存", "发言人标记已保存！\n\n"
+                                "1. 切换到「模式2 精确」\n"
+                                "2. 点击第3步重新分析\n"
+                                "3. 分析完后点击第4步生成切片")
+            win.destroy()
+
+        ttk.Button(bottom, text="💾 保存并关闭", command=_save_all).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(bottom, text="取消", command=win.destroy).pack(side=tk.RIGHT, padx=4)
 
         # 顶部工具栏
         toolbar = ttk.Frame(win, padding=8)
@@ -1712,108 +1758,188 @@ class AppLauncher(TkinterDnD.Tk):
         sb = ttk.Scrollbar(win, orient=tk.VERTICAL, command=canvas.yview)
         main_frame = ttk.Frame(canvas, padding=12)
         main_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=main_frame, anchor="nw")
+        canvas.create_window((0, 0), window=main_frame, anchor="nw", tags="main_win")
         canvas.configure(yscrollcommand=sb.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
+        def _set_width(e):
+            canvas.itemconfig("main_win", width=e.width)
+        canvas.bind("<Configure>", _set_width)
 
-        # 鼠标滚轮
         def _on_mousewheel(event):
             canvas.yview_scroll(-1 * (event.delta // 120), "units")
         canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
         canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
 
         cur_idx = [0]
-        speaker_vars = {}  # key: (seg_idx, sub_idx) → StringVar
-        all_entries = {}   # key: (seg_idx, sub_idx) → modified text StringVar
+        speaker_vars = {}
+        time_vars = {}  # (seg_idx, sub_idx) → (start_var, end_var)
 
-        def _play_segment(t0):
-            """用 ffplay 打开视频并跳转到指定时间"""
+        def _preview_with_subs(t0, t1, subs_list):
+            """用 ffmpeg 生成带字幕的预览片段并播放"""
             if not video or not video.exists():
                 messagebox.showinfo("提示", "未找到视频文件")
                 return
-            vpath = str(video)
+            import tempfile
+            # 生成临时 ASS 字幕
+            ass_tmp = tempfile.NamedTemporaryFile(suffix=".ass", delete=False, mode="w", encoding="utf-8")
+            ass_tmp.write("""[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Microsoft YaHei,36,&H00FFFFFF,&H00000000,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,10,10,50,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+""")
+            for sub in subs_list:
+                s = sub["start"] - t0
+                e = sub["end"] - t0
+                if s < 0:
+                    s = 0
+                if e > (t1 - t0):
+                    e = t1 - t0
+                text = sub["text"].replace("\n", "\\N")
+                ass_tmp.write(f"Dialogue: 0,{self._ass_time(s)},{self._ass_time(e)},Default,,0,0,0,,{text}\n")
+            ass_tmp.close()
+
+            # 生成预览视频
+            preview_tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+            preview_path = preview_tmp.name
+            preview_tmp.close()
+            cmd = [
+                "ffmpeg", "-y", "-ss", str(max(0, t0 - 1)), "-t", str(t1 - t0 + 3),
+                "-i", str(video),
+                "-vf", f"ass='{ass_tmp.name.replace(chr(92),chr(92)+chr(92)).replace(':',r'\\:')}'",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                "-c:a", "aac", "-b:a", "64k",
+                "-movflags", "+faststart", preview_path,
+            ]
+            self.log(f"  正在生成预览片段...")
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
             try:
-                subprocess.Popen(
-                    ["ffplay", "-ss", str(max(0, t0 - 2)), "-window_title",
-                     f"高光片段预览", "-autoexit", vpath],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
-            except FileNotFoundError:
-                # ffplay 不可用，用系统默认播放器（无法 seek）
-                os.startfile(vpath)
-            except Exception as e:
-                self.log(f"[播放] 失败: {e}")
+                os.unlink(ass_tmp.name)
+            except Exception:
+                pass
+            if os.path.exists(preview_path) and os.path.getsize(preview_path) > 0:
+                try:
+                    subprocess.Popen(["ffplay", "-window_title", "预览 (含字幕)", preview_path],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except FileNotFoundError:
+                    os.startfile(preview_path)
+            else:
+                self.log("  预览生成失败，回退到直接播放")
+                try:
+                    subprocess.Popen(["ffplay", "-ss", str(max(0, t0 - 2)), "-autoexit",
+                                       str(video)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except FileNotFoundError:
+                    os.startfile(str(video))
+
+        def _delete_sub(seg_idx, glob_idx):
+            """从 srt_entries 删除一条字幕"""
+            sd = segment_data[seg_idx]
+            if glob_idx < len(srt_entries):
+                del srt_entries[glob_idx]
+                # 重建受影响的 segment_data
+                for sd2 in segment_data:
+                    sd2["sub_indices"] = [i - 1 if i > glob_idx else i for i in sd2["sub_indices"] if i != glob_idx]
+                    sd2["subs"] = [srt_entries[i] for i in sd2["sub_indices"] if i < len(srt_entries)]
+            _render_segment(cur_idx[0])
+
+        def _add_sub_after(seg_idx, glob_idx):
+            """在指定位置后插入一条新字幕"""
+            if glob_idx + 1 < len(srt_entries):
+                ref = srt_entries[glob_idx]
+                new_entry = {"start": ref["end"], "end": ref["end"] + 2, "text": "(新字幕)"}
+            else:
+                new_entry = {"start": 0.0, "end": 2.0, "text": "(新字幕)"}
+            insert_at = glob_idx + 1
+            srt_entries.insert(insert_at, new_entry)
+            for sd2 in segment_data:
+                sd2["sub_indices"] = [i + 1 if i >= insert_at else i for i in sd2["sub_indices"]]
+                sd2["subs"] = [srt_entries[i] for i in sd2["sub_indices"] if i < len(srt_entries)]
+            _render_segment(cur_idx[0])
+
+        def _fmt_ts_edit(sec):
+            h, m, s = int(sec//3600), int((sec%3600)//60), int(sec%60)
+            return f"{h:02d}:{m:02d}:{s:02d}"
+
+        def _parse_ts_edit(text):
+            parts = text.strip().split(":")
+            if len(parts) == 3:
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+            return 0
 
         def _render_segment(idx):
             for w in main_frame.winfo_children():
                 w.destroy()
-
             if idx < 0 or idx >= len(segment_data):
                 return
             sd = segment_data[idx]
             seg = sd["seg"]
             subs = sd["subs"]
+            sub_indices = sd["sub_indices"]
             t0, t1 = sd["t0"], sd["t1"]
-
             seg_label.config(text=f"{idx + 1}/{len(segments)}")
 
-            # AI 分析结果卡片
+            # AI 结果卡片（颜色适配暗色背景）
             ai_card = ttk.LabelFrame(main_frame, text="AI 分析结果", padding=8)
             ai_card.pack(fill=tk.X, pady=(0, 8))
-
             ttk.Label(ai_card, text=f"标题: {seg.get('title', '(无)')}",
-                      font=("Microsoft YaHei UI", 10, "bold"), foreground="#4af").pack(anchor="w")
+                      font=("Microsoft YaHei UI", 10, "bold"), foreground="#5cf").pack(anchor="w")
             ttk.Label(ai_card, text=f"摘要: {seg.get('summary', '(无)')}",
-                      font=("Microsoft YaHei UI", 9), foreground="#ccc").pack(anchor="w", pady=(2, 0))
+                      font=("Microsoft YaHei UI", 9), foreground="#bbb").pack(anchor="w", pady=(2, 0))
             cover_row = ttk.Frame(ai_card)
             cover_row.pack(fill=tk.X, pady=(4, 0))
             ttk.Label(cover_row, text=f"封面大字: {seg.get('cover_text_1', '')}",
-                      foreground="#FFD700", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 16))
+                      foreground="#E6B800", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 16))
             ttk.Label(cover_row, text=f"封面小字: {seg.get('cover_text_2', '')}",
-                      foreground="#FFD700", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+                      foreground="#E6B800", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
             ttk.Label(ai_card, text=f"高光理由: {seg.get('highlight_reason', '(无)')}",
-                      foreground="#aaa", font=("Microsoft YaHei UI", 8)).pack(anchor="w", pady=(2, 0))
+                      foreground="#999", font=("Microsoft YaHei UI", 8)).pack(anchor="w", pady=(2, 0))
             ttk.Label(ai_card, text=f"时间: {self._format_seconds(t0)} → {self._format_seconds(t1)}",
                       foreground="#888", font=("Consolas", 9)).pack(anchor="w", pady=(4, 0))
+            ttk.Button(ai_card, text="▶ 预览 (含字幕)",
+                       command=lambda t0=t0, t1=t1, s=subs: _preview_with_subs(t0, t1, s)
+                       ).pack(anchor="w", pady=(8, 0))
 
-            # 播放按钮
-            play_btn = ttk.Button(ai_card, text="▶ 播放此片段",
-                                  command=lambda t=t0: _play_segment(t))
-            play_btn.pack(anchor="w", pady=(8, 0))
-
-            # 字幕列表
             if not subs:
-                ttk.Label(main_frame, text="(此片段内无匹配字幕)",
-                          foreground="#888").pack(pady=20)
+                ttk.Label(main_frame, text="(此片段内无匹配字幕)", foreground="#888").pack(pady=20)
+                ttk.Button(main_frame, text="＋ 在头部插入新字幕",
+                           command=lambda: _add_sub_after(idx, -1)).pack(pady=4)
                 return
 
             sub_card = ttk.LabelFrame(main_frame,
-                                       text=f"字幕 ({len(subs)} 条) — 逐条指定发言人",
+                                       text=f"字幕 ({len(subs)} 条) — 可编辑时间/增删",
                                        padding=8)
             sub_card.pack(fill=tk.X)
 
-            for si, sub in enumerate(subs):
+            for si, (sub, glob_idx) in enumerate(zip(subs, sub_indices)):
                 row = ttk.Frame(sub_card)
                 row.pack(fill=tk.X, pady=1)
 
-                # 时间戳
-                ts = f"{self._format_seconds(sub['start'])}"
-                ttk.Label(row, text=ts, font=("Consolas", 8),
-                          foreground="#888", width=7).pack(side=tk.LEFT)
+                # 可编辑时间戳
+                start_var = tk.StringVar(value=_fmt_ts_edit(sub["start"]))
+                end_var = tk.StringVar(value=_fmt_ts_edit(sub["end"]))
+                time_vars[(idx, si)] = (start_var, end_var)
+                ts_frame = ttk.Frame(row)
+                ts_frame.pack(side=tk.LEFT, padx=(0, 4))
+                ttk.Entry(ts_frame, textvariable=start_var, width=8,
+                          font=("Consolas", 8)).pack(side=tk.LEFT)
+                ttk.Label(ts_frame, text="→", font=("Consolas", 7),
+                          foreground="#666").pack(side=tk.LEFT)
 
                 # 发言人下拉
-                key = (idx, si)
                 sp_var = tk.StringVar(value="未指定")
-                speaker_vars[key] = sp_var
+                speaker_vars[(idx, si)] = sp_var
                 sp_combo = ttk.Combobox(row, textvariable=sp_var,
                                          values=[t[0] for t in self.SPEAKER_TYPES],
                                          state="readonly", width=6)
                 sp_combo.pack(side=tk.LEFT, padx=2)
-                sp_combo.bind("<<ComboboxSelected>>",
-                               lambda e, k=key: _on_speaker_change(k))
-
-                # 颜色预览
                 color_lbl = tk.Label(row, text="●", fg=self.SPEAKER_COLORS["未指定"],
                                      font=("Consolas", 10), width=2, bg="#1e1e1e")
                 color_lbl.pack(side=tk.LEFT)
@@ -1822,25 +1948,40 @@ class AppLauncher(TkinterDnD.Tk):
 
                 # 字幕文本
                 txt_var = tk.StringVar(value=sub["text"])
-                all_entries[key] = txt_var
                 ttk.Entry(row, textvariable=txt_var,
                           font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+                # 保存文本修改回原字典
+                txt_var.trace_add("write", lambda *a, s=sub, v=txt_var: s.update({"text": v.get()}))
 
-            # 批量设置此行字幕的发言人
+                # 删除/添加按钮
+                ttk.Button(row, text="✕", width=2,
+                           command=lambda gi=glob_idx: _delete_sub(idx, gi)).pack(side=tk.LEFT, padx=(2, 0))
+                ttk.Button(row, text="＋", width=2,
+                           command=lambda gi=glob_idx: _add_sub_after(idx, gi)).pack(side=tk.LEFT, padx=1)
+
+            # 保存时间编辑
+            def _apply_time_edits():
+                for (seg_i, sub_i), (sv, ev) in time_vars.items():
+                    sd2 = segment_data[seg_i]
+                    if sub_i < len(sd2["subs"]):
+                        sd2["subs"][sub_i]["start"] = _parse_ts_edit(sv.get())
+                        sd2["subs"][sub_i]["end"] = _parse_ts_edit(ev.get())
+                _render_segment(cur_idx[0])
+
+            # 批量设置发言人
             batch_row = ttk.Frame(sub_card)
             batch_row.pack(fill=tk.X, pady=(8, 0))
-            ttk.Label(batch_row, text="批量设置本段:", font=("Microsoft YaHei UI", 8),
+            ttk.Label(batch_row, text="批量本段:", font=("Microsoft YaHei UI", 8),
                       foreground="#888").pack(side=tk.LEFT)
             for sp_name, sp_color in self.SPEAKER_TYPES:
                 if sp_name == "未指定":
                     continue
-                btn = tk.Button(batch_row, text=sp_name, font=("Microsoft YaHei UI", 7),
-                                fg=sp_color, bg="#2a2a2a", relief=tk.FLAT, padx=4,
-                                command=lambda n=sp_name, i=idx: _batch_set_speaker(i, n))
-                btn.pack(side=tk.LEFT, padx=1)
-
-        def _on_speaker_change(key):
-            pass  # 颜色已通过 trace_add 更新
+                tk.Button(batch_row, text=sp_name, font=("Microsoft YaHei UI", 7),
+                          fg=sp_color, bg="#2a2a2a", relief=tk.FLAT, padx=4,
+                          command=lambda n=sp_name, i=idx: _batch_set_speaker(i, n)
+                          ).pack(side=tk.LEFT, padx=1)
+            ttk.Button(batch_row, text="应用时间编辑", command=_apply_time_edits
+                       ).pack(side=tk.LEFT, padx=(12, 0))
 
         def _batch_set_speaker(seg_idx, name):
             for si in range(len(segment_data[seg_idx]["subs"])):
@@ -1849,7 +1990,6 @@ class AppLauncher(TkinterDnD.Tk):
                     speaker_vars[key].set(name)
 
         def _nav(delta):
-            # 保存当前段编辑内容
             new_idx = cur_idx[0] + delta
             if 0 <= new_idx < len(segment_data):
                 cur_idx[0] = new_idx
@@ -1857,51 +1997,14 @@ class AppLauncher(TkinterDnD.Tk):
 
         _render_segment(0)
 
-        # 底部保存按钮
-        bottom = ttk.Frame(win, padding=12)
-        bottom.pack(fill=tk.X, side=tk.BOTTOM)
-
-        def _save_all():
-            # 收集所有 speaker 标记
-            speaker_map = {}  # sub text → speaker (按原始文本匹配)
-            for key, var in speaker_vars.items():
-                sp = var.get()
-                if sp == "未指定":
-                    continue
-                seg_idx, sub_idx = key
-                sub = segment_data[seg_idx]["subs"][sub_idx]
-                speaker_map[sub["text"]] = sp
-            # 写回 SRT：在每条字幕前加 [发言人]
-            def _fmt_ts(sec):
-                h = int(sec // 3600)
-                m = int((sec % 3600) // 60)
-                s = int(sec % 60)
-                ms = int((sec % 1) * 1000)
-                return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-            out_lines = []
-            for i, entry in enumerate(srt_entries, 1):
-                out_lines.append(str(i))
-                out_lines.append(f"{_fmt_ts(entry['start'])} --> {_fmt_ts(entry['end'])}")
-                sp = speaker_map.get(entry["text"], "")
-                # 也检查编辑后的文本
-                for key, txt_var in all_entries.items():
-                    if txt_var.get() == entry["text"] and key in speaker_vars:
-                        sp = speaker_vars[key].get()
-                        break
-                text = entry["text"]
-                if sp and sp != "未指定":
-                    text = f"[{sp}] {text}"
-                out_lines.append(text)
-                out_lines.append("")
-            with open(str(srt_path), "w", encoding="utf-8-sig") as f:
-                f.write("\n".join(out_lines))
-            self.log(f"  发言人标记已保存: {srt_path.name} ({len(speaker_map)} 条已标记)")
-            messagebox.showinfo("已保存", f"已保存 {len(speaker_map)} 条字幕的发言人标记\n\n"
-                                "可切换到「模式2 精确」重新运行第3步以获取更准确的标题。")
-            win.destroy()
-
-        ttk.Button(bottom, text="💾 保存发言人标记并关闭", command=_save_all).pack(side=tk.RIGHT, padx=4)
-        ttk.Button(bottom, text="取消", command=win.destroy).pack(side=tk.RIGHT, padx=4)
+    @staticmethod
+    def _ass_time(seconds):
+        """秒 → ASS 时间格式 H:MM:SS.cc"""
+        if seconds < 0:
+            seconds = 0
+        h, r = divmod(seconds, 3600)
+        m, s = divmod(r, 60)
+        return f"{int(h)}:{int(m):02d}:{int(s):02d}.{int((s%1)*100):02d}"
 
     def _edit_data_source(self):
         """打开标题编辑器，修改 Data_source.txt 中各片段的标题、摘要、封面文字"""
@@ -2208,6 +2311,186 @@ class AppLauncher(TkinterDnD.Tk):
             btn.pack(side=tk.LEFT)
 
             self._step_widgets[num] = {"icon": icon, "status": status_label, "btn": btn}
+
+    # ==========================================
+    # Aegisub 集成
+    # ==========================================
+
+    def _find_aegisub(self):
+        """查找 Aegisub 安装路径"""
+        import shutil as _shutil
+        # PATH 中查找
+        found = _shutil.which("aegisub")
+        if found:
+            return found
+        # 常见安装位置
+        for loc in [
+            r"C:\Program Files\Aegisub\aegisub.exe",
+            r"C:\Program Files (x86)\Aegisub\aegisub.exe",
+            str(PROJECT_ROOT.parent / "Aegisub" / "aegisub.exe"),
+            str(PROJECT_ROOT / "aegisub" / "aegisub.exe"),
+        ]:
+            if os.path.exists(loc):
+                return loc
+        return None
+
+    def _open_in_aegisub(self):
+        """在 Aegisub 中打开当前字幕 + 视频进行专业编辑"""
+        aegisub = self._find_aegisub()
+        if not aegisub:
+            if messagebox.askyesno("Aegisub 未安装",
+                "未检测到 Aegisub（专业字幕编辑器）。\n\n"
+                "Aegisub 支持: 时间轴拖拽、音频波形、视频预览、分轨样式、多选批量标记。\n\n"
+                "下载地址: https://github.com/Aegisub/Aegisub/releases\n"
+                "（下载 portable 版解压即可使用，无需安装）\n\n"
+                "是否现在打开下载页面？"):
+                os.startfile("https://github.com/Aegisub/Aegisub/releases")
+            return
+
+        srt = self._find_srt_for_check()
+        if not srt:
+            messagebox.showinfo("提示", "未找到字幕文件。请先生成/下载字幕。")
+            return
+        video = self._get_selected_video()
+        if not video and self._video_list:
+            video = Path(self._video_list[0][0])
+        if not video or not video.exists():
+            messagebox.showinfo("提示", "未找到匹配的视频文件。")
+            return
+
+        # 若 SRT 中有 [发言人] 标签，转为 ASS 样式保留
+        srt_text = srt.read_text(encoding="utf-8-sig")
+        ass_path = srt.with_suffix(".aegisub.ass")
+        speaker_styles = set()
+        for m in re.findall(r'\[(嘉然|贝拉|乃琳|心宜|思诺|旁白|一起说|ASOUL)\]', srt_text):
+            speaker_styles.add(m)
+        # 生成基础 ASS（保留原始字幕）
+        from core.subtitle_utils import SubtitleUtils
+        entries = SubtitleUtils.parse_srt(str(srt))
+        with open(ass_path, "w", encoding="utf-8-sig") as f:
+            f.write("""[Script Info]
+Title: ZhiJiangAutoClip
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+""")
+            # 发言人样式（用颜色区分）
+            speaker_style_defs = {
+                "嘉然": "&H00B469FF", "贝拉": "&H00B6599B", "乃琳": "&H00DB9834",
+                "心宜": "&H009314FF", "思诺": "&H00D7A0EE", "旁白": "&H00FFFFFF",
+                "一起说": "&H0000A5FF", "ASOUL": "&H00FF6A00",
+            }
+            f.write("Style: Default,Microsoft YaHei,36,&H00FFFFFF,&H00000000,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,10,10,50,1\n")
+            for sp_name in speaker_styles:
+                color = speaker_style_defs.get(sp_name, "&H00FFFFFF")
+                f.write(f"Style: {sp_name},Microsoft YaHei,36,&H00FFFFFF,&H00000000,{color},&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,10,10,50,1\n")
+            f.write("""
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+""")
+            for entry in entries:
+                start_s = entry["start"]
+                end_s = entry["end"]
+                s_h, s_r = divmod(start_s, 3600)
+                s_m, s_s = divmod(s_r, 60)
+                e_h, e_r = divmod(end_s, 3600)
+                e_m, e_s = divmod(e_r, 60)
+                start_ass = f"{int(s_h)}:{int(s_m):02d}:{int(s_s):02d}.{int((s_s%1)*100):02d}"
+                end_ass = f"{int(e_h)}:{int(e_m):02d}:{int(e_s):02d}.{int((e_s%1)*100):02d}"
+                text = entry["text"]
+                style = "Default"
+                sp_match = re.match(r'\[(嘉然|贝拉|乃琳|心宜|思诺|旁白|一起说|ASOUL)\]\s*', text)
+                if sp_match:
+                    style = sp_match.group(1)
+                    text = text[sp_match.end():]
+                text = text.replace("\n", "\\N")
+                f.write(f"Dialogue: 0,{start_ass},{end_ass},{style},,0,0,0,,{text}\n")
+
+        try:
+            subprocess.Popen([aegisub, str(video), str(ass_path)])
+            self.log(f"  已在 Aegisub 中打开: {srt.name} + {video.name}")
+            messagebox.showinfo("Aegisub 编辑提示",
+                "在 Aegisub 中完成编辑后：\n\n"
+                "1. 左上角「样式管理器」→ 创建成员专属样式（如「嘉然」「贝拉」）\n"
+                "2. 选中字幕行 → 音频面板选择样式\n"
+                "3. 用鼠标拖拽调整时间轴\n"
+                "4. Ctrl+S 保存 → 回到本程序点击「导入 Aegisub 样式」\n\n"
+                "常见: 将 'Default' 替换为成员样式名即可。")
+        except Exception as e:
+            self.log(f"  启动 Aegisub 失败: {e}")
+            messagebox.showerror("启动失败", f"无法启动 Aegisub:\n{e}\n\n路径: {aegisub}")
+
+    def _import_aegisub_styles(self):
+        """从 Aegisub 编辑后的 ASS 文件导入样式作为发言人标记"""
+        srt = self._find_srt_for_check()
+        if not srt:
+            messagebox.showinfo("提示", "未找到字幕文件。")
+            return
+        ass_path = srt.with_suffix(".aegisub.ass")
+        if not ass_path.exists():
+            # 也检查不带 aegisub 后缀的
+            ass_path = srt.with_suffix(".ass")
+        if not ass_path.exists():
+            messagebox.showinfo("提示",
+                f"未找到 Aegisub 编辑后的 ASS 文件。\n\n"
+                f"请先在 Aegisub 中打开字幕编辑并保存。\n"
+                f"预期路径: {ass_path.name}")
+            return
+
+        # 解析 ASS Dialogue 行
+        ass_text = ass_path.read_text(encoding="utf-8-sig")
+        style_map = {}  # text → style_name
+        for line in ass_text.split("\n"):
+            if line.startswith("Dialogue:"):
+                parts = line.split(",", 9)
+                if len(parts) == 10:
+                    style = parts[3].strip()
+                    text = parts[9].strip().replace("\\N", "\n")
+                    if style and style != "Default":
+                        style_map[text] = style
+
+        if not style_map:
+            messagebox.showinfo("提示", "ASS 中未找到非 Default 样式。\n\n请在 Aegisub 中为字幕行指定成员样式后保存。")
+            return
+
+        # 读 SRT → 匹配 → 写回 [发言人] 标签
+        srt_text = srt.read_text(encoding="utf-8-sig")
+        from core.subtitle_utils import SubtitleUtils
+        entries = SubtitleUtils.parse_srt(str(srt))
+        count = 0
+        for entry in entries:
+            if entry["text"] in style_map:
+                sp = style_map[entry["text"]]
+                count += 1
+            else:
+                # 模糊匹配：去掉已有标签后匹配
+                clean = re.sub(r'^\[.*?\]\s*', '', entry["text"])
+                sp = style_map.get(clean, "")
+            if sp:
+                entry["text"] = f"[{sp}] {re.sub(r'^\[.*?\]\s*', '', entry['text'])}"
+
+        # 写回 SRT
+        def _fmt_ts(sec):
+            h, m, s_int = int(sec//3600), int((sec%3600)//60), int(sec%60)
+            return f"{h:02d}:{m:02d}:{s_int:02d},{int((sec%1)*1000):03d}"
+        out = []
+        for i, e in enumerate(entries, 1):
+            out.append(str(i))
+            out.append(f"{_fmt_ts(e['start'])} --> {_fmt_ts(e['end'])}")
+            out.append(e["text"])
+            out.append("")
+        with open(str(srt), "w", encoding="utf-8-sig") as f:
+            f.write("\n".join(out))
+        self.log(f"  从 Aegisub 导入 {count} 条发言人标记 → {srt.name}")
+        messagebox.showinfo("导入完成",
+            f"已从 ASS 样式导入 {count} 条发言人标记。\n\n"
+            "可切换到「模式2 精确」重新运行第3步。")
+
+    # ==========================================
 
     def _mark_step(self, num, state):
         """state: 'wait', 'run', 'done', 'fail'"""
